@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "./registry.js";
+import { config } from "../config.js";
 
 // ── Web Search — DuckDuckGo HTML (no API key required) ───
 
@@ -7,6 +8,53 @@ interface SearchResult {
   url: string;
   snippet: string;
 }
+
+// ── Web Search — Tavily API (Primary) ────────────────────
+
+async function tavilySearch(
+  query: string,
+  maxResults: number,
+): Promise<SearchResult[]> {
+  if (!config.tavilyApiKey) {
+    throw new Error("Tavily API key is not configured.");
+  }
+
+  const response = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      api_key: config.tavilyApiKey,
+      query: query,
+      search_depth: "basic",
+      include_answer: false,
+      include_images: false,
+      include_raw_content: false,
+      max_results: maxResults,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Tavily API error: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const data = await response.json();
+
+  if (!data || !data.results) {
+    return [];
+  }
+
+  return data.results.map((result: any) => ({
+    title: result.title || "",
+    url: result.url || "",
+    snippet: result.content || result.raw_content || "",
+  }));
+}
+
+// ── Web Search — DuckDuckGo HTML (Fallback) ──────────────
 
 /**
  * Scrapes DuckDuckGo HTML search results.
@@ -82,7 +130,7 @@ function stripHtml(s: string): string {
 export const webSearch: ToolDefinition = {
   name: "web_search",
   description:
-    "Search the web using DuckDuckGo. Returns top results with titles, snippets, and URLs. Use this when you need current information, facts, or to research a topic.",
+    "Search the web for current information. Automatically uses Tavily API (if configured) for high-quality extracted content, or falls back to DuckDuckGo search.",
   parameters: {
     type: "object" as const,
     properties: {
@@ -107,27 +155,51 @@ export const webSearch: ToolDefinition = {
       return { error: "Query cannot be empty." };
     }
 
-    console.log(`  🔍 Searching: "${query}" (max ${maxResults})`);
+    let results: SearchResult[] = [];
+    let source = "";
 
     try {
-      const results = await duckduckgoSearch(query, maxResults);
-
-      if (results.length === 0) {
+      if (config.tavilyApiKey) {
+        console.log(`  🔍 Searching Tavily: "${query}" (max ${maxResults})`);
+        results = await tavilySearch(query, maxResults);
+        source = "Tavily";
+      } else {
+        throw new Error("Tavily API key not found, using DuckDuckGo fallback.");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(
+        `  ⚠️ Tavily search failed (${msg}). Falling back to DuckDuckGo.`,
+      );
+      try {
+        console.log(
+          `  🔍 Searching DuckDuckGo: "${query}" (max ${maxResults})`,
+        );
+        results = await duckduckgoSearch(query, maxResults);
+        source = "DuckDuckGo HTML";
+      } catch (ddgErr) {
+        const ddgMsg =
+          ddgErr instanceof Error ? ddgErr.message : String(ddgErr);
         return {
-          query,
-          results: [],
-          message: "No results found.",
+          error: `Both Tavily and DuckDuckGo searches failed. Primary error: ${msg}. Fallback error: ${ddgMsg}`,
         };
       }
+    }
 
+    if (results.length === 0) {
       return {
         query,
-        resultCount: results.length,
-        results,
+        source,
+        results: [],
+        message: "No results found.",
       };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { error: `Search failed: ${message}` };
     }
+
+    return {
+      query,
+      source,
+      resultCount: results.length,
+      results,
+    };
   },
 };

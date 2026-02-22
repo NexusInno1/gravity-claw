@@ -19,6 +19,7 @@ function requireEnv(key: string): string {
 export const config = {
   telegramBotToken: requireEnv("TELEGRAM_BOT_TOKEN"),
   openRouterApiKey: requireEnv("OPENROUTER_API_KEY"),
+  tavilyApiKey: process.env.TAVILY_API_KEY || "", // Optional, enables better search
 
   allowedUserIds: requireEnv("ALLOWED_USER_IDS")
     .split(",")

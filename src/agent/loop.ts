@@ -50,6 +50,10 @@ export async function runAgentLoop(
   let totalOutputTokens = 0;
   let useTools = tools.length > 0;
 
+  // Runaway execution protection state
+  let lastToolSignature = "";
+  let repeatedToolCount = 0;
+
   while (iterations < config.maxAgentIterations) {
     iterations++;
 
@@ -102,7 +106,28 @@ export async function runAgentLoop(
           }
 
           console.log(`  🔧 Tool: ${fnName}(${JSON.stringify(fnArgs)})`);
-          const result = await toolRegistry.execute(fnName, fnArgs);
+
+          // Identify repeated tool calls
+          const signature = `${fnName}:${JSON.stringify(fnArgs)}`;
+          if (signature === lastToolSignature) {
+            repeatedToolCount++;
+          } else {
+            lastToolSignature = signature;
+            repeatedToolCount = 0;
+          }
+
+          let result;
+          if (repeatedToolCount >= 3) {
+            console.log(
+              `  ⚠️ Infinite loop detected for ${fnName}. Forcing model to stop.`,
+            );
+            result = {
+              error:
+                "SYSTEM: You have called this exact tool with the same arguments multiple times in a row. Stop calling this tool and provide a final text response to the user.",
+            };
+          } else {
+            result = await toolRegistry.execute(fnName, fnArgs);
+          }
           console.log(`  ✅ Result: ${JSON.stringify(result)}`);
 
           messages.push({

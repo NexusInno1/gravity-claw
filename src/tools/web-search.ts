@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "./registry.js";
+import { log } from "../logger.js";
 import { config } from "../config.js";
 
 // ── Web Search — DuckDuckGo HTML (no API key required) ───
@@ -160,7 +161,7 @@ export const webSearch: ToolDefinition = {
 
     try {
       if (config.tavilyApiKey) {
-        console.log(`  🔍 Searching Tavily: "${query}" (max ${maxResults})`);
+        log.info({ query, maxResults }, "  🔍 Searching Tavily");
         results = await tavilySearch(query, maxResults);
         source = "Tavily";
       } else {
@@ -168,13 +169,12 @@ export const webSearch: ToolDefinition = {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.log(
-        `  ⚠️ Tavily search failed (${msg}). Falling back to DuckDuckGo.`,
+      log.info(
+        { error: msg },
+        "  ⚠️ Tavily search failed. Falling back to DuckDuckGo.",
       );
       try {
-        console.log(
-          `  🔍 Searching DuckDuckGo: "${query}" (max ${maxResults})`,
-        );
+        log.info({ query, maxResults }, "  🔍 Searching DuckDuckGo");
         results = await duckduckgoSearch(query, maxResults);
         source = "DuckDuckGo HTML";
       } catch (ddgErr) {

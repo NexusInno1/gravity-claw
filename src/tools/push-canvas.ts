@@ -4,6 +4,7 @@ import {
   getCanvasClientCount,
   type CanvasPayload,
 } from "../canvas/server.js";
+import { log } from "../logger.js";
 
 // ── Push Canvas — A2UI Tool ─────────────────────────────
 
@@ -67,9 +68,7 @@ Currently ${getCanvasClientCount()} client(s) connected.`,
 
     broadcastCanvas(payload);
 
-    console.log(
-      `  🖼️ Canvas push: ${type} "${title}" → ${clientCount} client(s)`,
-    );
+    log.info({ type, title, clientCount }, "  🖼️ Canvas push");
 
     return {
       success: true,

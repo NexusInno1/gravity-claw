@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { config } from "../config.js";
+import { log } from "../logger.js";
 
 // ── Canvas Server — HTTP + WebSocket ─────────────────────
 
@@ -132,7 +133,7 @@ const wss = new WebSocketServer({ server: httpServer });
 
 wss.on("connection", (ws) => {
   clients.add(ws);
-  console.log(`🖼️  Canvas client connected (${clients.size} total)`);
+  log.info({ clients: clients.size }, "🖼️  Canvas client connected");
 
   // Send existing canvas history to new clients
   if (canvasHistory.length > 0) {
@@ -143,7 +144,7 @@ wss.on("connection", (ws) => {
     try {
       const msg = JSON.parse(raw.toString());
       if (msg.type === "form_submit") {
-        console.log("📋 Form submitted from canvas:", msg.data);
+        log.info({ data: msg.data }, "📋 Form submitted from canvas");
         // Could feed this back into the bot/agent loop in the future
       }
     } catch {
@@ -153,7 +154,7 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     clients.delete(ws);
-    console.log(`🖼️  Canvas client disconnected (${clients.size} remaining)`);
+    log.info({ clients: clients.size }, "🖼️  Canvas client disconnected");
   });
 });
 
@@ -190,8 +191,6 @@ export function getCanvasClientCount(): number {
 
 export function startCanvasServer(): void {
   httpServer.listen(config.canvasPort, () => {
-    console.log(
-      `🖼️  Live Canvas running at http://localhost:${config.canvasPort}`,
-    );
+    log.info({ port: config.canvasPort }, "🖼️  Live Canvas running");
   });
 }

@@ -4,8 +4,12 @@ import { saveMessage, searchMessages } from "./store.js";
 import { getFacts, upsertFact } from "./facts-store.js";
 import { llm } from "../llm/claude.js";
 import { config } from "../config.js";
+import { log } from "../logger.js";
 
 // ── MemoryManager — 3-Layer Orchestrator ─────────────────
+
+/** Max messages to keep in session buffer before auto-trimming */
+const MAX_BUFFER_SIZE = 50;
 
 /** Per-user in-process message buffer (Layer 1) */
 const sessionBuffers = new Map<string, StoredMessage[]>();
@@ -48,7 +52,7 @@ export const memoryManager = {
         .filter((m) => !recentContents.has(m.content) && (m.score ?? 0) > 0.75)
         .slice(0, config.memorySemanticMatches);
     } catch (err) {
-      console.warn("⚠️ Pinecone search failed:", err);
+      log.warn(err, "⚠️ Pinecone search failed");
     }
 
     // Structured facts (Layer 3)
@@ -81,6 +85,11 @@ export const memoryManager = {
     const buf = this.getBuffer(userId);
     buf.push(userEntry, assistantEntry);
 
+    // Auto-trim: keep only the most recent messages
+    if (buf.length > MAX_BUFFER_SIZE) {
+      buf.splice(0, buf.length - MAX_BUFFER_SIZE);
+    }
+
     // Layer 2 — async Pinecone upsert & Layer 3 fact extraction (don't block response)
     void (async () => {
       try {
@@ -99,7 +108,7 @@ export const memoryManager = {
           ),
         ]);
       } catch (err) {
-        console.warn("⚠️ Pinecone save failed:", err);
+        log.warn(err, "⚠️ Pinecone save failed");
       }
 
       // Background fact extraction — runs every 4 messages
@@ -149,7 +158,7 @@ export const memoryManager = {
         }
       }
     } catch (err) {
-      console.warn("⚠️ Fact extraction failed:", err);
+      log.warn(err, "⚠️ Fact extraction failed");
     }
   },
 
@@ -191,7 +200,7 @@ export const memoryManager = {
         );
       }
     } catch (err) {
-      console.warn("⚠️ Compact/summarise failed:", err);
+      log.warn(err, "⚠️ Compact/summarise failed");
       throw err; // re-throw so bot can report to user
     }
 

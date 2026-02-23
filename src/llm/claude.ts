@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { config } from "../config.js";
+import { log } from "../logger.js";
 import { loadSkills, formatSkillsForPrompt } from "../skills/loader.js";
 
 // OpenRouter uses the OpenAI-compatible API
@@ -19,17 +20,18 @@ export const llm = new OpenAI({
 let soulDirective = "";
 try {
   soulDirective = readFileSync(join(process.cwd(), "soul.md"), "utf-8").trim();
-  console.log("🧬 Soul loaded from soul.md");
+  log.info("🧬 Soul loaded from soul.md");
 } catch {
-  console.warn("⚠️ soul.md not found — using default personality");
+  log.warn("⚠️ soul.md not found — using default personality");
 }
 
 // ── Load Skills ──────────────────────────────────────────
 
 const skills = loadSkills();
 if (skills.length > 0) {
-  console.log(
-    `📚 Loaded ${skills.length} skill(s): ${skills.map((s) => s.name).join(", ")}`,
+  log.info(
+    { count: skills.length, names: skills.map((s) => s.name) },
+    "📚 Skills loaded",
   );
 }
 const skillsBlock = formatSkillsForPrompt(skills);

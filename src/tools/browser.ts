@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "./registry.js";
 import { getPage, takeScreenshot } from "./browser-manager.js";
+import { log } from "../logger.js";
 
 // ── Browser Automation Tool ──────────────────────────────
 
@@ -68,7 +69,7 @@ The browser persists between calls — you can navigate, then click, then extrac
           const url = input.url as string;
           if (!url) return { error: "URL is required for navigate action." };
 
-          console.log(`  🌐 Navigating to: ${url}`);
+          log.info({ url }, "  🌐 Navigating");
           const page = await getPage(userId);
           await page.goto(url, {
             waitUntil: "domcontentloaded",
@@ -96,7 +97,7 @@ The browser persists between calls — you can navigate, then click, then extrac
           if (!selector)
             return { error: "Selector is required for click action." };
 
-          console.log(`  🖱️ Clicking: ${selector}`);
+          log.info({ selector }, "  🖱️ Clicking");
           const page = await getPage(userId);
           await page.click(selector, { timeout: 5000 });
 
@@ -111,7 +112,7 @@ The browser persists between calls — you can navigate, then click, then extrac
               error: "Both selector and text are required for type action.",
             };
 
-          console.log(`  ⌨️ Typing into: ${selector}`);
+          log.info({ selector }, "  ⌨️ Typing");
           const page = await getPage(userId);
           await page.fill(selector, text, { timeout: 5000 });
 
@@ -119,7 +120,7 @@ The browser persists between calls — you can navigate, then click, then extrac
         }
 
         case "screenshot": {
-          console.log("  📸 Taking screenshot...");
+          log.info("  📸 Taking screenshot");
           const filepath = await takeScreenshot(userId);
 
           return {
@@ -136,13 +137,13 @@ The browser persists between calls — you can navigate, then click, then extrac
 
           let content: string;
           if (selector) {
-            console.log(`  📄 Extracting from: ${selector}`);
+            log.info({ selector }, "  📄 Extracting from selector");
             content = await page
               .locator(selector)
               .first()
               .innerText({ timeout: 5000 });
           } else {
-            console.log("  📄 Extracting full page text");
+            log.info("  📄 Extracting full page text");
             content = await page.evaluate(() => {
               return document.body?.innerText || "";
             });
@@ -164,7 +165,7 @@ The browser persists between calls — you can navigate, then click, then extrac
           if (!script)
             return { error: "Script is required for evaluate action." };
 
-          console.log(`  ⚡ Evaluating JS: ${script.slice(0, 80)}...`);
+          log.info({ preview: script.slice(0, 80) }, "  ⚡ Evaluating JS");
           const page = await getPage(userId);
           const result = await page.evaluate(script);
 
@@ -182,7 +183,7 @@ The browser persists between calls — you can navigate, then click, then extrac
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`  ❌ Browser ${action} failed: ${message}`);
+      log.error({ action, error: message }, "  ❌ Browser action failed");
       return { error: `Browser ${action} failed: ${message}` };
     }
   },

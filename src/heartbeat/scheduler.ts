@@ -2,7 +2,8 @@ import cron from "node-cron";
 import type { Bot } from "grammy";
 import { config } from "../config.js";
 import { generateDailyCheckin, generateWeeklyDigest } from "./daily-checkin.js";
-import { logCheckin } from "./accountability.js";
+import { logCheckin, wasCheckinSentToday } from "./accountability.js";
+import { log } from "../logger.js";
 
 // ── Heartbeat Scheduler ──────────────────────────────────
 
@@ -17,10 +18,16 @@ export function startHeartbeat(bot: Bot): void {
   const dailyTask = cron.schedule(
     "0 9 * * *",
     async () => {
-      console.log("💓 Heartbeat triggered — sending daily check-ins...");
+      log.info("💓 Heartbeat triggered — sending daily check-ins...");
 
       for (const userId of config.allowedUserIds) {
         try {
+          // Skip if already sent today (e.g. after a mid-day restart)
+          if (wasCheckinSentToday(String(userId))) {
+            log.info({ userId }, "  ⏭️ Check-in already sent today");
+            continue;
+          }
+
           const { message, keyboard } = await generateDailyCheckin(
             String(userId),
           );
@@ -40,9 +47,9 @@ export function startHeartbeat(bot: Bot): void {
               }),
             );
 
-          console.log(`  ✅ Check-in sent to ${userId}`);
+          log.info({ userId }, "  📨 Daily check-in sent");
         } catch (err) {
-          console.error(`  ❌ Check-in failed for ${userId}:`, err);
+          log.error(err, "❌ Failed to send check-in");
         }
       }
     },
@@ -52,13 +59,11 @@ export function startHeartbeat(bot: Bot): void {
   );
 
   dailyTask.start();
-  console.log("💓 Daily heartbeat scheduled — 9:00 AM IST");
-
   // ── Weekly digest (Sunday 8:00 PM IST) ──────────────────
   const weeklyTask = cron.schedule(
     "0 20 * * 0",
     async () => {
-      console.log("📊 Weekly digest triggered...");
+      log.info("📊 Weekly digest triggered...");
 
       for (const userId of config.allowedUserIds) {
         try {
@@ -68,9 +73,9 @@ export function startHeartbeat(bot: Bot): void {
             .sendMessage(userId, digest, { parse_mode: "Markdown" })
             .catch(() => bot.api.sendMessage(userId, digest));
 
-          console.log(`  ✅ Weekly digest sent to ${userId}`);
+          log.info({ userId }, "  📨 Weekly digest sent");
         } catch (err) {
-          console.error(`  ❌ Weekly digest failed for ${userId}:`, err);
+          log.error(err, "❌ Failed to send weekly digest");
         }
       }
     },
@@ -80,5 +85,5 @@ export function startHeartbeat(bot: Bot): void {
   );
 
   weeklyTask.start();
-  console.log("📊 Weekly digest scheduled — Sunday 8:00 PM IST");
+  log.info("⏰ Heartbeat scheduled: daily 9 AM IST + weekly Sunday 8 PM IST");
 }

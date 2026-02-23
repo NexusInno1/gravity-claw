@@ -1,4 +1,6 @@
-// ── Retry with Exponential Backoff ───────────────────────
+// ── Retry with Exponential Backoff ───────────────────────────────────
+
+import { log } from "../logger.js";
 
 export interface RetryOptions {
   /** Max number of retry attempts (default: 3) */
@@ -50,9 +52,15 @@ export async function withRetry<T>(
 
       const delayMs = baseDelayMs * Math.pow(2, attempt);
       const statusInfo = getStatusCode(error);
-      console.warn(
-        `  ⚠️ ${label} failed (${statusInfo ?? "network error"}), ` +
-          `retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})…`,
+      log.warn(
+        {
+          label,
+          status: statusInfo,
+          delayMs,
+          attempt: attempt + 1,
+          maxRetries,
+        },
+        "⚠️ Retrying API call",
       );
       await sleep(delayMs);
     }

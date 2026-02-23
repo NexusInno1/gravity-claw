@@ -6,6 +6,7 @@ import type { AgentResult } from "./types.js";
 import { memoryManager } from "../memory/manager.js";
 import { buildMemoryContext } from "../memory/context-builder.js";
 import { withRetry } from "../llm/retry.js";
+import { log } from "../logger.js";
 
 /**
  * Run the agentic ReAct loop (OpenAI-compatible):
@@ -105,7 +106,7 @@ export async function runAgentLoop(
             fnArgs = {};
           }
 
-          console.log(`  🔧 Tool: ${fnName}(${JSON.stringify(fnArgs)})`);
+          log.info({ tool: fnName, args: fnArgs }, "  🔧 Tool call");
 
           // Identify repeated tool calls
           const signature = `${fnName}:${JSON.stringify(fnArgs)}`;
@@ -118,8 +119,9 @@ export async function runAgentLoop(
 
           let result;
           if (repeatedToolCount >= 3) {
-            console.log(
-              `  ⚠️ Infinite loop detected for ${fnName}. Forcing model to stop.`,
+            log.warn(
+              { tool: fnName },
+              "  ⚠️ Infinite loop detected, forcing stop",
             );
             result = {
               error:
@@ -128,7 +130,7 @@ export async function runAgentLoop(
           } else {
             result = await toolRegistry.execute(fnName, fnArgs);
           }
-          console.log(`  ✅ Result: ${JSON.stringify(result)}`);
+          log.debug({ tool: fnName, result }, "  ✅ Tool result");
 
           messages.push({
             role: "tool",
@@ -159,8 +161,9 @@ export async function runAgentLoop(
 
       // If tool calling itself failed, retry without tools
       if (useTools && iterations === 1) {
-        console.log(
-          `  ⚠️ Tool calling failed (${errMsg}). Retrying without tools...`,
+        log.warn(
+          { error: errMsg },
+          "  ⚠️ Tool calling failed, retrying without tools",
         );
         useTools = false;
         iterations--;
@@ -169,8 +172,9 @@ export async function runAgentLoop(
 
       // Fallback model: try once with the backup model if configured
       if (config.fallbackModel && iterations <= 2) {
-        console.log(
-          `  🔄 Primary model failed. Trying fallback: ${config.fallbackModel}`,
+        log.info(
+          { fallbackModel: config.fallbackModel },
+          "  🔄 Trying fallback model",
         );
         try {
           const fallbackResponse = await withRetry(
@@ -201,7 +205,7 @@ export async function runAgentLoop(
             };
           }
         } catch (fbErr) {
-          console.error("  ❌ Fallback model also failed:", fbErr);
+          log.error(fbErr, "  ❌ Fallback model also failed");
         }
       }
 

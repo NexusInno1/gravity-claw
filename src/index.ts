@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { log } from "./logger.js";
 import { createBot } from "./bot.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { getCurrentTime } from "./tools/get-current-time.js";
@@ -20,14 +21,14 @@ import { closeBrowser } from "./tools/browser-manager.js";
 // ── Main ─────────────────────────────────────────────────
 
 async function main() {
-  console.log("");
-  console.log("🦅 Gravity Claw — Level 3 (Tools & Automation)");
-  console.log("────────────────────────────────────────");
-  console.log(`   Model:      ${config.llmModel}`);
-  console.log(`   Users:      [${config.allowedUserIds.join(", ")}]`);
-  console.log(`   Max iters:  ${config.maxAgentIterations}`);
-  console.log("────────────────────────────────────────");
-  console.log("");
+  log.info(
+    {
+      model: config.llmModel,
+      users: config.allowedUserIds,
+      maxIters: config.maxAgentIterations,
+    },
+    "🦅 Gravity Claw — Level 3 (Tools & Automation)",
+  );
 
   // Register tools
   const toolRegistry = new ToolRegistry();
@@ -38,7 +39,10 @@ async function main() {
   toolRegistry.register(scheduleTask);
   toolRegistry.register(manageTasks);
   toolRegistry.register(webhookTool);
-  console.log(`🔧 Registered ${toolRegistry.getOpenAITools().length} tool(s)`);
+  log.info(
+    { count: toolRegistry.getOpenAITools().length },
+    "🔧 Tools registered",
+  );
 
   // Start Live Canvas server (HTTP + WebSocket + Webhooks)
   startCanvasServer();
@@ -58,7 +62,7 @@ async function main() {
 
   // Graceful shutdown
   const shutdown = async () => {
-    console.log("\n👋 Shutting down Gravity Claw...");
+    log.info("👋 Shutting down Gravity Claw...");
     await closeBrowser();
     bot.stop();
     process.exit(0);
@@ -67,15 +71,15 @@ async function main() {
   process.on("SIGTERM", () => void shutdown());
 
   // Start
-  console.log("🚀 Starting Telegram long-polling...\n");
+  log.info("🚀 Starting Telegram long-polling...");
   await bot.start({
     onStart: () => {
-      console.log("✅ Gravity Claw is online. Waiting for messages...\n");
+      log.info("✅ Gravity Claw is online. Waiting for messages...");
     },
   });
 }
 
 main().catch((error) => {
-  console.error("💀 Fatal error:", error);
+  log.fatal(error, "💀 Fatal error");
   process.exit(1);
 });

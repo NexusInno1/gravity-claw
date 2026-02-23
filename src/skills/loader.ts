@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, existsSync, mkdirSync } from "fs";
 import { join, basename } from "path";
+import { log } from "../logger.js";
 
 // ── Skills System ────────────────────────────────────────
 
@@ -23,7 +24,7 @@ export function loadSkills(): Skill[] {
   // Ensure skills directory exists
   if (!existsSync(SKILLS_DIR)) {
     mkdirSync(SKILLS_DIR, { recursive: true });
-    console.log("📁 Created /skills directory");
+    log.info("📁 Created /skills directory");
   }
 
   const files = readdirSync(SKILLS_DIR).filter((f) =>
@@ -42,7 +43,7 @@ export function loadSkills(): Skill[] {
         });
       }
     } catch (err) {
-      console.warn(`⚠️ Failed to load skill ${file}:`, err);
+      log.warn(err, `⚠️ Failed to load skill ${file}`);
     }
   }
 

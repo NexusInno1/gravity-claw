@@ -1,6 +1,7 @@
 import { chromium, type Browser, type Page } from "playwright";
 import { mkdirSync, existsSync } from "fs";
 import { join } from "path";
+import { log } from "../logger.js";
 
 // ── Browser Manager — Playwright Singleton ───────────────
 
@@ -19,12 +20,12 @@ function ensureScreenshotDir(): void {
 /** Lazy-launch a Chromium browser instance. */
 export async function getBrowser(): Promise<Browser> {
   if (!browser || !browser.isConnected()) {
-    console.log("🌐 Launching Chromium...");
+    log.info("🌐 Launching Chromium...");
     browser = await chromium.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
-    console.log("🌐 Chromium ready");
+    log.info("🌐 Chromium ready");
   }
   return browser;
 }
@@ -76,6 +77,6 @@ export async function closeBrowser(): Promise<void> {
       // already closed
     }
     browser = null;
-    console.log("🌐 Chromium closed");
+    log.info("🌐 Chromium closed");
   }
 }

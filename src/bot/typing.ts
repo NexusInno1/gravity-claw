@@ -138,7 +138,7 @@ export class TypingIndicator {
 
 // ── Helper ───────────────────────────────────────────────
 
-function splitMessage(text: string, maxLength: number): string[] {
+export function splitMessage(text: string, maxLength: number): string[] {
   if (text.length <= maxLength) return [text];
 
   const chunks: string[] = [];

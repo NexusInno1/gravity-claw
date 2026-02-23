@@ -5,6 +5,7 @@ import { getFacts } from "../memory/facts-store.js";
 import { buildMemoryContext } from "../memory/context-builder.js";
 import { memoryManager } from "../memory/manager.js";
 import { getCheckinHistory, getWeeklySummary } from "./accountability.js";
+import { log } from "../logger.js";
 
 // ── Daily Check-in Message Generator ─────────────────────
 
@@ -90,7 +91,7 @@ Remember: you're their accountability partner, not a motivational poster.`;
 
     return { message, keyboard };
   } catch (err) {
-    console.error("❌ Daily check-in generation failed:", err);
+    log.error(err, "❌ Daily check-in generation failed");
     return {
       message:
         "🦅 Morning! Did you track your weight? What's your #1 goal today?",
@@ -159,7 +160,7 @@ Write a concise weekly review (under 250 words):
       "📊 Weekly digest unavailable. Keep showing up!"
     );
   } catch (err) {
-    console.error("❌ Weekly digest generation failed:", err);
+    log.error(err, "❌ Weekly digest generation failed");
     return "📊 Weekly digest unavailable. Keep showing up!";
   }
 }

@@ -1,4 +1,5 @@
 import { Bot } from "grammy";
+import { log } from "./logger.js";
 import { config } from "./config.js";
 import { runAgentLoop } from "./agent/loop.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -173,7 +174,7 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
     const userId = String(ctx.from.id);
     const data = ctx.callbackQuery.data;
 
-    console.log(`🔘 [${userId}] Button: ${data}`);
+    log.info({ userId, button: data }, "🔘 Button pressed");
 
     try {
       if (data === "checkin:on_track") {
@@ -211,18 +212,38 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
         await ctx.answerCallbackQuery();
       }
     } catch (err) {
-      console.error("❌ Callback handling error:", err);
+      log.error(err, "❌ Callback handling error");
       await ctx.answerCallbackQuery({ text: "Something went wrong" });
     }
   });
+
+  // ── Per-user concurrency lock ─────────────────────────────
+  // Prevents two simultaneous agent loops from corrupting the session buffer
+  const userLocks = new Map<string, Promise<void>>();
+
+  async function withUserLock(
+    userId: string,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    const prev = userLocks.get(userId) ?? Promise.resolve();
+    const current = prev.then(fn, fn).finally(() => {
+      // Clean up if this is still the latest promise
+      if (userLocks.get(userId) === current) {
+        userLocks.delete(userId);
+      }
+    });
+    userLocks.set(userId, current);
+    await current;
+  }
 
   // ── Text messages → onboarding or agent loop ─────────────
   bot.on("message:text", async (ctx) => {
     const userMessage = ctx.message.text;
     const userId = String(ctx.from.id);
 
-    console.log(
-      `📩 [${userId}] ${userMessage.substring(0, 80)}${userMessage.length > 80 ? "…" : ""}`,
+    log.info(
+      { userId, preview: userMessage.substring(0, 80) },
+      "📩 Message received",
     );
 
     // ── Onboarding: first-time user detection ───────────
@@ -243,40 +264,47 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
           .catch(() => ctx.reply(message));
       }
       if (done) {
-        console.log(`🌟 [${userId}] Onboarding complete`);
+        log.info({ userId }, "🌟 Onboarding complete");
       }
       return;
     }
 
-    // ── Typing indicator: show "Thinking..." placeholder ──
-    const typing = new TypingIndicator();
-    await typing.start(ctx);
+    // ── Agent loop (locked per user) ──────────────────────
+    await withUserLock(userId, async () => {
+      const typing = new TypingIndicator();
+      await typing.start(ctx);
 
-    try {
-      const result = await runAgentLoop(userMessage, toolRegistry, userId);
+      try {
+        const result = await runAgentLoop(userMessage, toolRegistry, userId);
 
-      // Log usage
-      usageTracker.log(
-        config.llmModel,
-        result.inputTokens,
-        result.outputTokens,
-        result.latencyMs,
-      );
+        // Log usage
+        usageTracker.log(
+          config.llmModel,
+          result.inputTokens,
+          result.outputTokens,
+          result.latencyMs,
+        );
 
-      console.log(
-        `🤖 Done — ${result.iterations} iter, ${result.toolCalls} tools, ` +
-          `${result.inputTokens + result.outputTokens} tokens, ${result.latencyMs}ms`,
-      );
+        log.info(
+          {
+            iterations: result.iterations,
+            toolCalls: result.toolCalls,
+            tokens: result.inputTokens + result.outputTokens,
+            latencyMs: result.latencyMs,
+          },
+          "🤖 Agent loop complete",
+        );
 
-      // Edit placeholder into final response (handles chunking internally)
-      await typing.stop(ctx, result.response);
-    } catch (error) {
-      console.error("❌ Agent error:", error);
-      await typing.stopWithError(
-        ctx,
-        "⚠️ Something went wrong. Check the logs.",
-      );
-    }
+        // Edit placeholder into final response (handles chunking internally)
+        await typing.stop(ctx, result.response);
+      } catch (error) {
+        log.error(error, "❌ Agent error");
+        await typing.stopWithError(
+          ctx,
+          "⚠️ Something went wrong. Check the logs.",
+        );
+      }
+    });
   });
 
   return bot;

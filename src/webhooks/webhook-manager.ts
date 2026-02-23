@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
+import { log } from "../logger.js";
 import type { Bot } from "grammy";
 import { runAgentLoop } from "../agent/loop.js";
 import type { ToolRegistry } from "../tools/registry.js";
@@ -45,15 +46,26 @@ export function registerWebhook(
   userId: string,
   description: string,
 ): WebhookDef {
+  // Sanitize webhook ID: only lowercase alphanumeric + hyphens, max 50 chars
+  const sanitized = id
+    .replace(/[^a-z0-9\-]/gi, "")
+    .toLowerCase()
+    .slice(0, 50);
+  if (!sanitized) {
+    throw new Error(
+      "Invalid webhook ID. Use lowercase letters, numbers, and hyphens only.",
+    );
+  }
+
   const webhooks = readWebhooks();
 
   // Check for duplicate
-  if (webhooks.some((w) => w.id === id)) {
-    throw new Error(`Webhook "${id}" already exists.`);
+  if (webhooks.some((w) => w.id === sanitized)) {
+    throw new Error(`Webhook "${sanitized}" already exists.`);
   }
 
   const webhook: WebhookDef = {
-    id,
+    id: sanitized,
     userId,
     description,
     createdAt: Date.now(),
@@ -63,7 +75,7 @@ export function registerWebhook(
   webhooks.push(webhook);
   writeWebhooks(webhooks);
 
-  console.log(`🪝 Webhook created: /webhook/${id}`);
+  log.info({ id: sanitized }, "🪝 Webhook created");
   return webhook;
 }
 
@@ -79,7 +91,7 @@ export function deleteWebhook(id: string): boolean {
   webhooks.splice(idx, 1);
   writeWebhooks(webhooks);
 
-  console.log(`🗑️ Webhook deleted: /webhook/${id}`);
+  log.info({ id }, "🗑️ Webhook deleted");
   return true;
 }
 
@@ -112,8 +124,9 @@ export async function handleWebhookTrigger(
   webhook.triggerCount++;
   writeWebhooks(webhooks);
 
-  console.log(
-    `🪝 Webhook triggered: /webhook/${webhookId} (#${webhook.triggerCount})`,
+  log.info(
+    { id: webhook.id, triggerCount: webhook.triggerCount },
+    "🪝 Webhook triggered",
   );
 
   // Build a prompt from the webhook payload
@@ -135,7 +148,7 @@ export async function handleWebhookTrigger(
     return { ok: true, message: "Webhook processed successfully." };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(`❌ Webhook processing failed:`, err);
+    log.error(err, "❌ Webhook processing failed");
     return { ok: false, message: errMsg };
   }
 }
@@ -148,6 +161,6 @@ export function initWebhookManager(bot: Bot, toolRegistry: ToolRegistry): void {
 
   const webhooks = readWebhooks();
   if (webhooks.length > 0) {
-    console.log(`🪝 Loaded ${webhooks.length} webhook(s)`);
+    log.info({ count: webhooks.length }, "🪝 Webhooks loaded");
   }
 }

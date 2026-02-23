@@ -1,4 +1,5 @@
 import cron, { type ScheduledTask } from "node-cron";
+import { log } from "../logger.js";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import type { Bot } from "grammy";
@@ -121,7 +122,7 @@ export function createTask(
   // Start the cron job
   startJob(task);
 
-  console.log(`⏰ Task created: [${id}] "${label}" — ${cronExpression}`);
+  log.info({ id, label, cronExpression }, "⏰ Task created");
   return task;
 }
 
@@ -140,7 +141,7 @@ export function pauseTask(taskId: string): boolean {
   const job = activeJobs.get(taskId);
   if (job) job.stop();
 
-  console.log(`⏸️ Task paused: [${taskId}]`);
+  log.info({ taskId }, "⏸️ Task paused");
   return true;
 }
 
@@ -154,7 +155,7 @@ export function resumeTask(taskId: string): boolean {
 
   startJob(task);
 
-  console.log(`▶️ Task resumed: [${taskId}]`);
+  log.info({ taskId }, "▶️ Task resumed");
   return true;
 }
 
@@ -172,7 +173,7 @@ export function deleteTask(taskId: string): boolean {
     activeJobs.delete(taskId);
   }
 
-  console.log(`🗑️ Task deleted: [${taskId}]`);
+  log.info({ taskId }, "🗑️ Task deleted");
   return true;
 }
 
@@ -188,12 +189,10 @@ function startJob(task: ScheduledTaskDef): void {
   const job = cron.schedule(
     task.cronExpression,
     async () => {
-      console.log(`⏰ Executing task: [${task.id}] "${task.label}"`);
+      log.info({ id: task.id, label: task.label }, "⏰ Executing task");
 
       if (!botRef || !toolRegistryRef) {
-        console.warn(
-          "⚠️ Bot or tool registry not initialised for task execution",
-        );
+        log.warn("⚠️ Bot or tool registry not initialised for task execution");
         return;
       }
 
@@ -212,9 +211,9 @@ function startJob(task: ScheduledTaskDef): void {
           .sendMessage(userId, message, { parse_mode: "Markdown" })
           .catch(() => botRef!.api.sendMessage(userId, message));
 
-        console.log(`  ✅ Task [${task.id}] executed successfully`);
+        log.info({ id: task.id }, "  ✅ Task executed successfully");
       } catch (err) {
-        console.error(`  ❌ Task [${task.id}] failed:`, err);
+        log.error(err, "  ❌ Task execution failed");
       }
     },
     { timezone: "Asia/Kolkata" },
@@ -240,6 +239,6 @@ export function initTaskScheduler(bot: Bot, toolRegistry: ToolRegistry): void {
   }
 
   if (tasks.length > 0) {
-    console.log(`⏰ Restored ${restored}/${tasks.length} scheduled task(s)`);
+    log.info({ restored, total: tasks.length }, "⏰ Scheduled tasks restored");
   }
 }

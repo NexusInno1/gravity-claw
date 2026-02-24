@@ -14,9 +14,11 @@ import { setReminder } from "./tools/set-reminder.js";
 import { readUrl } from "./tools/read-url.js";
 import { translate } from "./tools/translate.js";
 import { startHeartbeat } from "./heartbeat/scheduler.js";
+import { loadAccountability } from "./heartbeat/accountability.js";
 import { startCanvasServer, setWebhookHandler } from "./canvas/server.js";
 import { initTaskScheduler } from "./scheduler/task-scheduler.js";
 import { loadFacts } from "./memory/facts-store.js";
+import { initReminders } from "./tools/set-reminder.js";
 import {
   initWebhookManager,
   handleWebhookTrigger,
@@ -64,12 +66,16 @@ async function main() {
   // Start daily heartbeat (9:00 AM IST)
   startHeartbeat(bot);
 
-  // Load user facts from Pinecone (hydrate cache)
+  // Load user data from Pinecone (hydrate caches)
   const allowedUserId = String(config.allowedUserIds[0]);
   await loadFacts(allowedUserId);
+  await loadAccountability(allowedUserId);
 
   // Init scheduled task engine (restores saved tasks from Pinecone)
   await initTaskScheduler(bot, toolRegistry);
+
+  // Restore pending reminders from Pinecone
+  await initReminders();
 
   // Init webhook manager + wire route handler into canvas server
   initWebhookManager(bot, toolRegistry);

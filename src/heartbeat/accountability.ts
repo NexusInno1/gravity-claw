@@ -1,10 +1,10 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
-import { join } from "path";
+import { getPineconeIndex } from "../memory/pinecone.js";
+import { log } from "../logger.js";
 
 // ── Accountability Tracker — Heartbeat Response Log ──────
 
-const DATA_DIR = join(process.cwd(), "data");
-const ACCOUNTABILITY_FILE = join(DATA_DIR, "accountability.json");
+/** Embedding dimension must match the index (multilingual-e5-large = 1024) */
+const ZERO_VECTOR = new Array(1024).fill(0);
 
 export interface CheckinEntry {
   date: string; // YYYY-MM-DD
@@ -18,20 +18,12 @@ export interface CheckinEntry {
 
 type AccountabilityDb = Record<string, CheckinEntry[]>; // userId → entries
 
-function readDb(): AccountabilityDb {
-  if (!existsSync(ACCOUNTABILITY_FILE)) return {};
-  try {
-    return JSON.parse(
-      readFileSync(ACCOUNTABILITY_FILE, "utf-8"),
-    ) as AccountabilityDb;
-  } catch {
-    return {};
-  }
-}
+/** In-memory cache — loaded from Pinecone at startup */
+let cache: AccountabilityDb = {};
 
-function writeDb(db: AccountabilityDb): void {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(ACCOUNTABILITY_FILE, JSON.stringify(db, null, 2), "utf-8");
+/** Build a deterministic Pinecone record ID. */
+function accountabilityId(userId: string): string {
+  return `accountability-${userId}`;
 }
 
 /** Get today's date string in YYYY-MM-DD (IST) */
@@ -39,19 +31,71 @@ function todayIST(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 }
 
+// ── Pinecone I/O ─────────────────────────────────────────
+
+async function writeAccountability(
+  userId: string,
+  entries: CheckinEntry[],
+): Promise<void> {
+  try {
+    const index = getPineconeIndex();
+    // Only keep last 30 entries to stay within Pinecone metadata limits
+    const trimmed = entries.slice(-30);
+    await index.upsert({
+      records: [
+        {
+          id: accountabilityId(userId),
+          values: ZERO_VECTOR,
+          metadata: {
+            _type: "accountability",
+            userId,
+            entries: JSON.stringify(trimmed),
+          },
+        },
+      ],
+    });
+  } catch (err) {
+    log.warn(err, "⚠️ Failed to save accountability to Pinecone");
+  }
+}
+
+/** Load accountability data from Pinecone into cache. Call at startup. */
+export async function loadAccountability(userId: string): Promise<void> {
+  try {
+    const index = getPineconeIndex();
+    const result = await index.fetch({ ids: [accountabilityId(userId)] });
+    const record = result.records?.[accountabilityId(userId)];
+
+    if (record?.metadata?.["entries"]) {
+      const entries = JSON.parse(
+        String(record.metadata["entries"]),
+      ) as CheckinEntry[];
+      if (entries.length > 0) {
+        cache[userId] = entries;
+        log.info(
+          { userId, entryCount: entries.length },
+          "📦 Accountability loaded from Pinecone",
+        );
+      }
+    }
+  } catch (err) {
+    log.warn(err, "⚠️ Failed to load accountability from Pinecone");
+  }
+}
+
+// ── Public API ───────────────────────────────────────────
+
 /** Log a check-in response (or mark a check-in as sent). */
 export function logCheckin(userId: string, data: Partial<CheckinEntry>): void {
-  const db = readDb();
-  if (!db[userId]) db[userId] = [];
+  if (!cache[userId]) cache[userId] = [];
 
   const date = data.date ?? todayIST();
-  const existing = db[userId]!.find((e) => e.date === date);
+  const existing = cache[userId]!.find((e) => e.date === date);
 
   if (existing) {
-    // Update existing entry for today
     Object.assign(existing, data);
   } else {
-    db[userId]!.push({
+    cache[userId]!.push({
       date,
       timestamp: Date.now(),
       responded: false,
@@ -59,7 +103,8 @@ export function logCheckin(userId: string, data: Partial<CheckinEntry>): void {
     });
   }
 
-  writeDb(db);
+  // Async Pinecone write
+  void writeAccountability(userId, cache[userId]!);
 }
 
 /** Get check-in history for a user, most recent first. */
@@ -67,8 +112,7 @@ export function getCheckinHistory(
   userId: string,
   days: number = 7,
 ): CheckinEntry[] {
-  const db = readDb();
-  const entries = db[userId] ?? [];
+  const entries = cache[userId] ?? [];
   return entries.sort((a, b) => b.timestamp - a.timestamp).slice(0, days);
 }
 
@@ -86,7 +130,6 @@ export function getWeeklySummary(userId: string): {
   const responded = history.filter((e) => e.responded).length;
   const weightTrackedDays = history.filter((e) => e.weightTracked).length;
 
-  // Mood breakdown
   const moodBreakdown: Record<string, number> = {};
   for (const entry of history) {
     if (entry.mood) {
@@ -94,7 +137,6 @@ export function getWeeklySummary(userId: string): {
     }
   }
 
-  // Current streak (consecutive days responded)
   let streak = 0;
   for (const entry of history) {
     if (entry.responded) {
@@ -116,7 +158,6 @@ export function getWeeklySummary(userId: string): {
 
 /** Check if today's check-in has already been sent. */
 export function wasCheckinSentToday(userId: string): boolean {
-  const db = readDb();
-  const entries = db[userId] ?? [];
+  const entries = cache[userId] ?? [];
   return entries.some((e) => e.date === todayIST());
 }

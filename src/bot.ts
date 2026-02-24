@@ -5,12 +5,7 @@ import { runAgentLoop } from "./agent/loop.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import { usageTracker } from "./usage/tracker.js";
 import { memoryManager } from "./memory/manager.js";
-import {
-  needsOnboarding,
-  startOnboarding,
-  isOnboarding,
-  processOnboardingAnswer,
-} from "./memory/onboarding.js";
+
 import { logCheckin } from "./heartbeat/accountability.js";
 import { TypingIndicator } from "./bot/typing.js";
 import { listTasks } from "./scheduler/task-scheduler.js";
@@ -401,7 +396,7 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
     }
   });
 
-  // ── Text messages → onboarding or agent loop ─────────────
+  // ── Text messages → agent loop ────────────────────────────
   bot.on("message:text", async (ctx) => {
     const userMessage = ctx.message.text;
     const userId = String(ctx.from.id);
@@ -411,30 +406,6 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
       "📩 Message received",
     );
 
-    // ── Onboarding: first-time user detection ───────────
-    if (needsOnboarding(userId)) {
-      const welcome = startOnboarding(userId);
-      await ctx
-        .reply(welcome, { parse_mode: "MarkdownV2" })
-        .catch(() => ctx.reply(welcome));
-      return;
-    }
-
-    // ── Onboarding: mid-flow question answering ─────────
-    if (isOnboarding(userId)) {
-      const { message, done } = processOnboardingAnswer(userId, userMessage);
-      if (message) {
-        await ctx
-          .reply(message, { parse_mode: "MarkdownV2" })
-          .catch(() => ctx.reply(message));
-      }
-      if (done) {
-        log.info({ userId }, "🌟 Onboarding complete");
-      }
-      return;
-    }
-
-    // ── Agent loop ──────────────────────────────────────
     await handleAgentMessage(ctx, userId, userMessage);
   });
 

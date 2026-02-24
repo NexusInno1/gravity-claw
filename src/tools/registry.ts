@@ -1,4 +1,5 @@
 import type { ChatCompletionTool } from "openai/resources/chat/completions.js";
+import { log } from "../logger.js";
 
 // ── Tool Definition ──────────────────────────────────────
 
@@ -12,6 +13,9 @@ export interface ToolDefinition {
   };
   execute: (input: Record<string, unknown>) => Promise<unknown>;
 }
+
+/** Default timeout for tool execution (30 seconds) */
+const TOOL_TIMEOUT_MS = 30_000;
 
 // ── Tool Registry ────────────────────────────────────────
 
@@ -38,7 +42,7 @@ export class ToolRegistry {
     }));
   }
 
-  /** Execute a tool by name. Returns the result or an error object. */
+  /** Execute a tool by name with timeout. Returns the result or an error object. */
   async execute(
     name: string,
     input: Record<string, unknown>,
@@ -48,9 +52,24 @@ export class ToolRegistry {
       return { error: `Unknown tool: ${name}` };
     }
     try {
-      return await tool.execute(input);
+      const result = await Promise.race([
+        tool.execute(input),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Tool "${name}" timed out after ${TOOL_TIMEOUT_MS / 1000}s`,
+                ),
+              ),
+            TOOL_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      log.error({ tool: name, error: message }, `❌ Tool execution failed`);
       return { error: `Tool "${name}" failed: ${message}` };
     }
   }

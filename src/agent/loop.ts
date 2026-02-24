@@ -127,7 +127,7 @@ export async function runAgentLoop(
           }
 
           let result;
-          if (repeatedToolCount >= 3) {
+          if (repeatedToolCount >= 2) {
             log.warn(
               { tool: fnName },
               "  ⚠️ Infinite loop detected, forcing stop",
@@ -152,7 +152,8 @@ export async function runAgentLoop(
       }
 
       // ── Final text response ─────────────────────────────
-      const finalResponse = message.content || "(no response)";
+      const rawResponse = message.content || "(no response)";
+      const finalResponse = sanitizeResponse(rawResponse);
 
       // Save the exchange to memory asynchronously (don't block the reply)
       void memoryManager.saveExchange(userId, userMessage, finalResponse);
@@ -242,6 +243,38 @@ export async function runAgentLoop(
   };
 }
 
+// ── Response Sanitizer ───────────────────────────────────
+
+/** Tool names that should never appear as slash commands in user-visible text */
+const TOOL_NAMES = [
+  "web_search",
+  "get_current_time",
+  "push_canvas",
+  "browser",
+  "schedule_task",
+  "manage_tasks",
+  "manage_webhooks",
+  "send_file",
+  "set_reminder",
+  "read_url",
+  "translate",
+];
+
+/**
+ * Strip accidental tool-name leaks from LLM responses.
+ * e.g. "/web_search Denmark Country" → "Denmark Country"
+ */
+function sanitizeResponse(text: string): string {
+  let cleaned = text;
+  for (const name of TOOL_NAMES) {
+    // Remove lines that are just "/tool_name" or "/tool_name some text"
+    cleaned = cleaned.replace(new RegExp(`^\\/${name}\\b.*$`, "gm"), "");
+  }
+  // Collapse multiple blank lines into one
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
+  return cleaned || text; // fallback to original if everything was stripped
+}
+
 // ── Error Messages ───────────────────────────────────────
 
 function buildUserErrorMessage(error: unknown): string {
@@ -263,6 +296,9 @@ function buildUserErrorMessage(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
   if (msg.includes("ECONNRESET") || msg.includes("ETIMEDOUT")) {
     return "⚠️ Network connection failed. Check your internet and try again.";
+  }
+  if (msg.includes("timed out")) {
+    return "⚠️ Request timed out. The operation took too long — try again.";
   }
 
   return `⚠️ Something went wrong: ${msg.slice(0, 150)}`;

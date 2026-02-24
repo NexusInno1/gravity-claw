@@ -16,6 +16,7 @@ import { translate } from "./tools/translate.js";
 import { startHeartbeat } from "./heartbeat/scheduler.js";
 import { startCanvasServer, setWebhookHandler } from "./canvas/server.js";
 import { initTaskScheduler } from "./scheduler/task-scheduler.js";
+import { loadFacts } from "./memory/facts-store.js";
 import {
   initWebhookManager,
   handleWebhookTrigger,
@@ -63,8 +64,12 @@ async function main() {
   // Start daily heartbeat (9:00 AM IST)
   startHeartbeat(bot);
 
-  // Init scheduled task engine (restores saved tasks)
-  initTaskScheduler(bot, toolRegistry);
+  // Load user facts from Pinecone (hydrate cache)
+  const allowedUserId = String(config.allowedUserIds[0]);
+  await loadFacts(allowedUserId);
+
+  // Init scheduled task engine (restores saved tasks from Pinecone)
+  await initTaskScheduler(bot, toolRegistry);
 
   // Init webhook manager + wire route handler into canvas server
   initWebhookManager(bot, toolRegistry);

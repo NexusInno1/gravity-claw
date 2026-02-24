@@ -1,15 +1,14 @@
 import cron, { type ScheduledTask } from "node-cron";
 import { log } from "../logger.js";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
-import { join } from "path";
+import { getPineconeIndex } from "../memory/pinecone.js";
 import type { Bot } from "grammy";
 import { runAgentLoop } from "../agent/loop.js";
 import type { ToolRegistry } from "../tools/registry.js";
 
 // ── Scheduled Task Manager ───────────────────────────────
 
-const DATA_DIR = join(process.cwd(), "data");
-const TASKS_FILE = join(DATA_DIR, "scheduled-tasks.json");
+/** Embedding dimension must match the index (multilingual-e5-large = 1024) */
+const ZERO_VECTOR = new Array(1024).fill(0);
 
 export interface ScheduledTaskDef {
   id: string;
@@ -25,24 +24,87 @@ export interface ScheduledTaskDef {
 // Active cron jobs
 const activeJobs = new Map<string, ScheduledTask>();
 
+// In-memory cache of all tasks
+let taskCache: ScheduledTaskDef[] = [];
+
 // References set during init
 let botRef: Bot | null = null;
 let toolRegistryRef: ToolRegistry | null = null;
 
-// ── Persistence ──────────────────────────────────────────
+// ── Pinecone Persistence ─────────────────────────────────
 
-function readTasks(): ScheduledTaskDef[] {
-  if (!existsSync(TASKS_FILE)) return [];
+/** Build a deterministic Pinecone record ID for a scheduled task. */
+function taskRecordId(taskId: string): string {
+  return `sched-${taskId}`;
+}
+
+async function readTasksFromPinecone(): Promise<ScheduledTaskDef[]> {
   try {
-    return JSON.parse(readFileSync(TASKS_FILE, "utf-8")) as ScheduledTaskDef[];
-  } catch {
+    const index = getPineconeIndex();
+    // Query with zero vector to find all scheduled task records
+    const result = await index.query({
+      vector: ZERO_VECTOR,
+      topK: 100,
+      filter: { _type: { $eq: "scheduled_task" } },
+      includeMetadata: true,
+    });
+
+    return (result.matches ?? [])
+      .filter((m) => m.metadata)
+      .map((m) => ({
+        id: String(m.metadata!["taskId"] ?? ""),
+        userId: String(m.metadata!["userId"] ?? ""),
+        cronExpression: String(m.metadata!["cronExpression"] ?? ""),
+        label: String(m.metadata!["label"] ?? ""),
+        action: String(m.metadata!["action"] ?? ""),
+        paused:
+          m.metadata!["paused"] === true || m.metadata!["paused"] === "true",
+        createdAt: Number(m.metadata!["createdAt"] ?? 0),
+      }))
+      .filter((t) => t.id && t.cronExpression);
+  } catch (err) {
+    log.warn(err, "⚠️ Failed to read tasks from Pinecone");
     return [];
   }
 }
 
-function writeTasks(tasks: ScheduledTaskDef[]): void {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2), "utf-8");
+async function writeTaskToPinecone(task: ScheduledTaskDef): Promise<void> {
+  try {
+    const index = getPineconeIndex();
+    await index.upsert({
+      records: [
+        {
+          id: taskRecordId(task.id),
+          values: ZERO_VECTOR,
+          metadata: {
+            _type: "scheduled_task",
+            taskId: task.id,
+            userId: task.userId,
+            cronExpression: task.cronExpression,
+            label: task.label,
+            action: task.action.slice(0, 1000),
+            paused: task.paused,
+            createdAt: task.createdAt,
+          },
+        },
+      ],
+    });
+  } catch (err) {
+    log.warn(err, "⚠️ Failed to save task to Pinecone");
+  }
+}
+
+async function deleteTaskFromPinecone(taskId: string): Promise<void> {
+  try {
+    const index = getPineconeIndex();
+    await index.deleteOne({ id: taskRecordId(taskId) });
+  } catch (err) {
+    log.warn(err, "⚠️ Failed to delete task from Pinecone");
+  }
+}
+
+function readTasks(): ScheduledTaskDef[] {
+  return taskCache;
 }
 
 // ── Natural Language → Cron Parser ───────────────────────
@@ -115,9 +177,8 @@ export function createTask(
     createdAt: Date.now(),
   };
 
-  const tasks = readTasks();
-  tasks.push(task);
-  writeTasks(tasks);
+  taskCache.push(task);
+  void writeTaskToPinecone(task);
 
   // Start the cron job
   startJob(task);
@@ -131,12 +192,11 @@ export function listTasks(userId: string): ScheduledTaskDef[] {
 }
 
 export function pauseTask(taskId: string): boolean {
-  const tasks = readTasks();
-  const task = tasks.find((t) => t.id === taskId);
+  const task = taskCache.find((t) => t.id === taskId);
   if (!task) return false;
 
   task.paused = true;
-  writeTasks(tasks);
+  void writeTaskToPinecone(task);
 
   const job = activeJobs.get(taskId);
   if (job) job.stop();
@@ -146,12 +206,11 @@ export function pauseTask(taskId: string): boolean {
 }
 
 export function resumeTask(taskId: string): boolean {
-  const tasks = readTasks();
-  const task = tasks.find((t) => t.id === taskId);
+  const task = taskCache.find((t) => t.id === taskId);
   if (!task) return false;
 
   task.paused = false;
-  writeTasks(tasks);
+  void writeTaskToPinecone(task);
 
   startJob(task);
 
@@ -160,12 +219,11 @@ export function resumeTask(taskId: string): boolean {
 }
 
 export function deleteTask(taskId: string): boolean {
-  const tasks = readTasks();
-  const idx = tasks.findIndex((t) => t.id === taskId);
+  const idx = taskCache.findIndex((t) => t.id === taskId);
   if (idx === -1) return false;
 
-  tasks.splice(idx, 1);
-  writeTasks(tasks);
+  taskCache.splice(idx, 1);
+  void deleteTaskFromPinecone(taskId);
 
   const job = activeJobs.get(taskId);
   if (job) {
@@ -223,22 +281,30 @@ function startJob(task: ScheduledTaskDef): void {
   activeJobs.set(task.id, job);
 }
 
-// ── Init — restore tasks from disk ──────────────────────
+// ── Init — restore tasks from Pinecone ──────────────────
 
-export function initTaskScheduler(bot: Bot, toolRegistry: ToolRegistry): void {
+export async function initTaskScheduler(
+  bot: Bot,
+  toolRegistry: ToolRegistry,
+): Promise<void> {
   botRef = bot;
   toolRegistryRef = toolRegistry;
 
-  const tasks = readTasks();
+  // Load tasks from Pinecone into cache
+  taskCache = await readTasksFromPinecone();
+
   let restored = 0;
-  for (const task of tasks) {
+  for (const task of taskCache) {
     if (!task.paused) {
       startJob(task);
       restored++;
     }
   }
 
-  if (tasks.length > 0) {
-    log.info({ restored, total: tasks.length }, "⏰ Scheduled tasks restored");
+  if (taskCache.length > 0) {
+    log.info(
+      { restored, total: taskCache.length },
+      "⏰ Scheduled tasks restored from Pinecone",
+    );
   }
 }

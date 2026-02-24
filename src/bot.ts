@@ -53,7 +53,10 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
         "/model — Current model info\n" +
         "/usage — Token usage & costs\n" +
         "/compact — Summarise & compress conversation\n" +
-        "/help — This message",
+        "/help — This message\n\n" +
+        "📎 *File Support*\n" +
+        "• Send a PDF — I'll read and analyze it\n" +
+        "• Send a photo — I'll describe what I see",
       { parse_mode: "Markdown" },
     );
   });
@@ -236,6 +239,168 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
     await current;
   }
 
+  // ── Helper: run agent + track usage ───────────────────────
+  async function handleAgentMessage(
+    ctx: any,
+    userId: string,
+    userMessage: string,
+    imageUrl?: string,
+  ): Promise<void> {
+    await withUserLock(userId, async () => {
+      const typing = new TypingIndicator();
+      await typing.start(ctx);
+
+      try {
+        const result = await runAgentLoop(
+          userMessage,
+          toolRegistry,
+          userId,
+          imageUrl,
+        );
+
+        // Log usage
+        usageTracker.log(
+          config.llmModel,
+          result.inputTokens,
+          result.outputTokens,
+          result.latencyMs,
+        );
+
+        log.info(
+          {
+            iterations: result.iterations,
+            toolCalls: result.toolCalls,
+            tokens: result.inputTokens + result.outputTokens,
+            latencyMs: result.latencyMs,
+          },
+          "🤖 Agent loop complete",
+        );
+
+        // Edit placeholder into final response (handles chunking internally)
+        await typing.stop(ctx, result.response);
+      } catch (error) {
+        log.error(error, "❌ Agent error");
+        await typing.stopWithError(
+          ctx,
+          "⚠️ Something went wrong. Check the logs.",
+        );
+      }
+    });
+  }
+
+  // ── Document messages (PDF reading) ───────────────────────
+  bot.on("message:document", async (ctx) => {
+    const userId = String(ctx.from.id);
+    const doc = ctx.message.document;
+
+    if (!doc) return;
+
+    const mimeType = doc.mime_type || "";
+    const fileName = doc.file_name || "document";
+
+    log.info({ userId, fileName, mimeType }, "📄 Document received");
+
+    // Only support PDFs for now
+    if (mimeType !== "application/pdf") {
+      await ctx.reply(
+        "📄 I can only read *PDF files* for now\\. Please send a \\.pdf document\\.",
+        { parse_mode: "MarkdownV2" },
+      );
+      return;
+    }
+
+    // Check file size (Telegram allows up to 20MB for bots)
+    if (doc.file_size && doc.file_size > 10 * 1024 * 1024) {
+      await ctx.reply("⚠️ PDF is too large (max 10MB). Try a smaller file.");
+      return;
+    }
+
+    try {
+      // Download the file from Telegram
+      const file = await ctx.api.getFile(doc.file_id);
+      const fileUrl = `https://api.telegram.org/file/bot${config.telegramBotToken}/${file.file_path}`;
+
+      const response = await fetch(fileUrl);
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      // Extract text from PDF
+      const pdfParse = (await import("pdf-parse")).default;
+      const pdfData = await pdfParse(buffer);
+
+      const pdfText = pdfData.text?.trim();
+
+      if (!pdfText) {
+        await ctx.reply(
+          "⚠️ Could not extract text from this PDF. It might be image-based (scanned).",
+        );
+        return;
+      }
+
+      // Truncate if very long
+      const maxChars = 12000;
+      const truncated = pdfText.length > maxChars;
+      const text = truncated ? pdfText.slice(0, maxChars) : pdfText;
+
+      // Build the message for the agent
+      const caption = ctx.message.caption || "";
+      const userMessage = caption
+        ? `${caption}\n\n--- PDF Content (${fileName}, ${pdfData.numpages} pages) ---\n${text}${truncated ? "\n\n[... truncated ...]" : ""}`
+        : `The user sent a PDF file: "${fileName}" (${pdfData.numpages} pages). Here is the extracted text:\n\n${text}${truncated ? "\n\n[... truncated ...]" : ""}\n\nPlease read and summarize the key points of this document.`;
+
+      log.info(
+        { fileName, pages: pdfData.numpages, chars: pdfText.length, truncated },
+        "📄 PDF text extracted",
+      );
+
+      await handleAgentMessage(ctx, userId, userMessage);
+    } catch (err) {
+      log.error(err, "❌ PDF processing error");
+      await ctx.reply(
+        "⚠️ Failed to read the PDF. The file may be corrupted or encrypted.",
+      );
+    }
+  });
+
+  // ── Photo messages (image understanding) ──────────────────
+  bot.on("message:photo", async (ctx) => {
+    const userId = String(ctx.from.id);
+    const photos = ctx.message.photo;
+
+    if (!photos || photos.length === 0) return;
+
+    log.info({ userId, photoCount: photos.length }, "🖼️ Photo received");
+
+    try {
+      // Get the highest resolution photo (last in the array)
+      const bestPhoto = photos[photos.length - 1]!;
+
+      // Download the photo from Telegram
+      const file = await ctx.api.getFile(bestPhoto.file_id);
+      const fileUrl = `https://api.telegram.org/file/bot${config.telegramBotToken}/${file.file_path}`;
+
+      const response = await fetch(fileUrl);
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      // Convert to base64 data URL
+      const base64 = buffer.toString("base64");
+      const imageUrl = `data:image/jpeg;base64,${base64}`;
+
+      // Build the user message
+      const caption =
+        ctx.message.caption || "What's in this image? Describe what you see.";
+
+      log.info(
+        { userId, fileSize: buffer.length, caption: caption.substring(0, 50) },
+        "🖼️ Photo processed, sending to LLM",
+      );
+
+      await handleAgentMessage(ctx, userId, caption, imageUrl);
+    } catch (err) {
+      log.error(err, "❌ Photo processing error");
+      await ctx.reply("⚠️ Failed to process the image. Please try again.");
+    }
+  });
+
   // ── Text messages → onboarding or agent loop ─────────────
   bot.on("message:text", async (ctx) => {
     const userMessage = ctx.message.text;
@@ -269,42 +434,8 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
       return;
     }
 
-    // ── Agent loop (locked per user) ──────────────────────
-    await withUserLock(userId, async () => {
-      const typing = new TypingIndicator();
-      await typing.start(ctx);
-
-      try {
-        const result = await runAgentLoop(userMessage, toolRegistry, userId);
-
-        // Log usage
-        usageTracker.log(
-          config.llmModel,
-          result.inputTokens,
-          result.outputTokens,
-          result.latencyMs,
-        );
-
-        log.info(
-          {
-            iterations: result.iterations,
-            toolCalls: result.toolCalls,
-            tokens: result.inputTokens + result.outputTokens,
-            latencyMs: result.latencyMs,
-          },
-          "🤖 Agent loop complete",
-        );
-
-        // Edit placeholder into final response (handles chunking internally)
-        await typing.stop(ctx, result.response);
-      } catch (error) {
-        log.error(error, "❌ Agent error");
-        await typing.stopWithError(
-          ctx,
-          "⚠️ Something went wrong. Check the logs.",
-        );
-      }
-    });
+    // ── Agent loop ──────────────────────────────────────
+    await handleAgentMessage(ctx, userId, userMessage);
   });
 
   return bot;

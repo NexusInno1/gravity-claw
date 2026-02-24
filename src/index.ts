@@ -9,6 +9,10 @@ import { browserTool } from "./tools/browser.js";
 import { scheduleTask } from "./tools/schedule-task.js";
 import { manageTasks } from "./tools/manage-tasks.js";
 import { webhookTool } from "./tools/webhook-tool.js";
+import { sendFile } from "./tools/send-file.js";
+import { setReminder } from "./tools/set-reminder.js";
+import { readUrl } from "./tools/read-url.js";
+import { translate } from "./tools/translate.js";
 import { startHeartbeat } from "./heartbeat/scheduler.js";
 import { startCanvasServer, setWebhookHandler } from "./canvas/server.js";
 import { initTaskScheduler } from "./scheduler/task-scheduler.js";
@@ -17,6 +21,7 @@ import {
   handleWebhookTrigger,
 } from "./webhooks/webhook-manager.js";
 import { closeBrowser } from "./tools/browser-manager.js";
+import { setBotRef } from "./bot/bot-ref.js";
 
 // ── Main ─────────────────────────────────────────────────
 
@@ -39,6 +44,10 @@ async function main() {
   toolRegistry.register(scheduleTask);
   toolRegistry.register(manageTasks);
   toolRegistry.register(webhookTool);
+  toolRegistry.register(sendFile);
+  toolRegistry.register(setReminder);
+  toolRegistry.register(readUrl);
+  toolRegistry.register(translate);
   log.info(
     { count: toolRegistry.getOpenAITools().length },
     "🔧 Tools registered",
@@ -49,6 +58,7 @@ async function main() {
 
   // Create bot (long-polling)
   const bot = createBot(toolRegistry);
+  setBotRef(bot);
 
   // Start daily heartbeat (9:00 AM IST)
   startHeartbeat(bot);

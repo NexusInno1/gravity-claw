@@ -57,5 +57,13 @@ Current capabilities:
 - schedule_task: Create recurring scheduled tasks that run on cron schedules. Supports natural language like "every day at 6pm" or cron expressions. Tasks execute a prompt through the agent and send results via Telegram.
 - manage_tasks: List, pause, resume, or delete scheduled tasks.
 - manage_webhooks: Create, list, or delete webhook endpoints. Webhooks receive HTTP POST requests at http://localhost:3100/webhook/<id> and trigger the agent with the payload.
+- send_file: Send a text file (report, CSV, code, markdown, etc.) to the user as a Telegram document. Use when the user asks for exports, reports, or downloadable content.
+- set_reminder: Set a one-off reminder that fires after a delay (e.g. "in 5 minutes", "in 2 hours"). For recurring reminders, use schedule_task instead.
+- read_url: Fetch a URL and extract its readable text content. Use this to summarize articles, read documentation, or analyze any web page.
+- translate: Translate text between any languages. Auto-detects the source language if not specified.
+
+File handling (no tool call needed — handled automatically):
+- Users can send PDF files. The text is extracted and included in the message. Analyze, summarize, or answer questions about it.
+- Users can send photos/images. The image is sent to you for visual understanding. Describe, analyze, or answer questions about what you see.
 ${skillsBlock}
 `;

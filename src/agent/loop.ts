@@ -19,6 +19,7 @@ export async function runAgentLoop(
   userMessage: string,
   toolRegistry: ToolRegistry,
   userId: string,
+  imageUrl?: string,
 ): Promise<AgentResult> {
   const startTime = Date.now();
 
@@ -38,10 +39,18 @@ export async function runAgentLoop(
       content: m.content,
     }));
 
+  // Build user content — multimodal if image is provided
+  const userContent: ChatCompletionMessageParam["content"] = imageUrl
+    ? [
+        { type: "image_url" as const, image_url: { url: imageUrl } },
+        { type: "text" as const, text: userMessage },
+      ]
+    : userMessage;
+
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
     ...historyMessages,
-    { role: "user", content: userMessage },
+    { role: "user", content: userContent },
   ];
 
   const tools = toolRegistry.getOpenAITools();

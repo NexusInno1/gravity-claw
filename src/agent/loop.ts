@@ -1,5 +1,5 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.js";
-import { llm, SYSTEM_PROMPT } from "../llm/claude.js";
+import { llm, SYSTEM_PROMPT, TOOL_NAMES } from "../llm/claude.js";
 import { config } from "../config.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { AgentResult } from "./types.js";
@@ -7,6 +7,20 @@ import { memoryManager } from "../memory/manager.js";
 import { buildMemoryContext } from "../memory/context-builder.js";
 import { withRetry } from "../llm/retry.js";
 import { log } from "../logger.js";
+
+// ── Text-based tool call detector ────────────────────────
+// Some weaker models output "/tool_name args" as text instead of using
+// the function-calling API. This regex detects that pattern.
+const TEXT_TOOL_CALL_RE = new RegExp(
+  `^\\/(${TOOL_NAMES.join("|")})(?:\\s+(.*))?$`,
+  "m",
+);
+
+/** Max total tool calls per single agent run (across all iterations) */
+const MAX_TOTAL_TOOL_CALLS = 15;
+
+/** Max times the same tool name can appear (even with different args) */
+const MAX_CALLS_PER_TOOL = 5;
 
 /**
  * Run the agentic ReAct loop (OpenAI-compatible):
@@ -63,6 +77,7 @@ export async function runAgentLoop(
   // Runaway execution protection state
   let lastToolSignature = "";
   let repeatedToolCount = 0;
+  const toolCallCounts = new Map<string, number>(); // per-tool call frequency
 
   while (iterations < config.maxAgentIterations) {
     iterations++;
@@ -104,6 +119,17 @@ export async function runAgentLoop(
       if (choice.finish_reason === "tool_calls" && message.tool_calls?.length) {
         messages.push(message);
 
+        // Global budget check
+        if (totalToolCalls >= MAX_TOTAL_TOOL_CALLS) {
+          log.warn({ totalToolCalls }, "  ⚠️ Total tool call budget exceeded");
+          messages.push({
+            role: "user",
+            content:
+              "SYSTEM: You have used too many tool calls. Stop calling tools and provide your final answer now.",
+          });
+          continue;
+        }
+
         for (const toolCall of message.tool_calls) {
           totalToolCalls++;
 
@@ -117,7 +143,7 @@ export async function runAgentLoop(
 
           log.info({ tool: fnName, args: fnArgs }, "  🔧 Tool call");
 
-          // Identify repeated tool calls
+          // Per-signature repeat detection (identical call)
           const signature = `${fnName}:${JSON.stringify(fnArgs)}`;
           if (signature === lastToolSignature) {
             repeatedToolCount++;
@@ -126,15 +152,29 @@ export async function runAgentLoop(
             repeatedToolCount = 0;
           }
 
+          // Per-tool frequency tracking
+          const toolCount = (toolCallCounts.get(fnName) ?? 0) + 1;
+          toolCallCounts.set(fnName, toolCount);
+
           let result;
-          if (repeatedToolCount >= 2) {
+          if (repeatedToolCount >= 1) {
+            // Same exact call twice in a row — halt
             log.warn(
               { tool: fnName },
-              "  ⚠️ Infinite loop detected, forcing stop",
+              "  ⚠️ Identical tool call repeated, forcing stop",
             );
             result = {
               error:
-                "SYSTEM: You have called this exact tool with the same arguments multiple times in a row. Stop calling this tool and provide a final text response to the user.",
+                "SYSTEM: You called this exact tool with the same arguments twice in a row. Do not call it again. Synthesize what you know and give the user a final text answer.",
+            };
+          } else if (toolCount > MAX_CALLS_PER_TOOL) {
+            // Same tool called too many times with different args — warn
+            log.warn(
+              { tool: fnName, count: toolCount },
+              "  ⚠️ Tool called too frequently",
+            );
+            result = {
+              error: `SYSTEM: You have called ${fnName} ${toolCount} times. Stop using this tool and provide your final answer to the user now.`,
             };
           } else {
             result = await toolRegistry.execute(fnName, fnArgs);
@@ -152,14 +192,80 @@ export async function runAgentLoop(
       }
 
       // ── Final text response ─────────────────────────────
-      const rawResponse = message.content || "(no response)";
+      const rawResponse = message.content || "";
+
+      // ── Intercept text-based tool invocations ───────────
+      // Some models output "/web_search query" as text instead of calling
+      // the tool via the API. Detect this and execute the tool ourselves.
+      if (rawResponse) {
+        const textToolMatch = rawResponse.match(TEXT_TOOL_CALL_RE);
+        if (textToolMatch) {
+          const fnName = textToolMatch[1]!;
+          const fnArgsText = (textToolMatch[2] ?? "").trim();
+          log.warn(
+            { tool: fnName, args: fnArgsText },
+            "  ⚠️ Model output tool as text — intercepting and executing",
+          );
+
+          // Build reasonable args from the text
+          const fnArgs: Record<string, unknown> = {};
+          if (fnName === "web_search" && fnArgsText) {
+            fnArgs["query"] = fnArgsText;
+          } else if (fnArgsText) {
+            // Try to parse as JSON, else treat as input
+            try {
+              Object.assign(fnArgs, JSON.parse(fnArgsText));
+            } catch {
+              fnArgs["input"] = fnArgsText;
+            }
+          }
+
+          totalToolCalls++;
+          const toolCount = (toolCallCounts.get(fnName) ?? 0) + 1;
+          toolCallCounts.set(fnName, toolCount);
+
+          if (
+            totalToolCalls <= MAX_TOTAL_TOOL_CALLS &&
+            toolCount <= MAX_CALLS_PER_TOOL
+          ) {
+            const result = await toolRegistry.execute(fnName, fnArgs);
+            messages.push({ role: "assistant", content: rawResponse });
+            messages.push({
+              role: "user",
+              content: `Tool result for ${fnName}: ${JSON.stringify(result)}\n\nNow provide a final natural language answer to the user based on these results.`,
+            });
+            continue;
+          }
+        }
+      }
+
+      // ── Sanitize and check for empty response ───────────
       const finalResponse = sanitizeResponse(rawResponse);
 
+      // If after sanitization the response is empty, the model was only
+      // outputting tool commands. Re-prompt it to give a natural answer.
+      if (!finalResponse && iterations < config.maxAgentIterations - 1) {
+        log.warn(
+          "  ⚠️ Response was entirely tool commands after sanitizing — re-prompting",
+        );
+        messages.push({ role: "assistant", content: rawResponse || "..." });
+        messages.push({
+          role: "user",
+          content:
+            "SYSTEM: Your previous response was empty or only contained tool commands. Please provide a natural language answer to the user's original question now. Do not output any tool names or commands.",
+        });
+        continue;
+      }
+
+      const safeResponse =
+        finalResponse ||
+        "I couldn't find a clear answer. Please try rephrasing your question.";
+
       // Save the exchange to memory asynchronously (don't block the reply)
-      void memoryManager.saveExchange(userId, userMessage, finalResponse);
+      void memoryManager.saveExchange(userId, userMessage, safeResponse);
 
       return {
-        response: finalResponse,
+        response: safeResponse,
         toolCalls: totalToolCalls,
         iterations,
         inputTokens: totalInputTokens,
@@ -245,34 +351,25 @@ export async function runAgentLoop(
 
 // ── Response Sanitizer ───────────────────────────────────
 
-/** Tool names that should never appear as slash commands in user-visible text */
-const TOOL_NAMES = [
-  "web_search",
-  "get_current_time",
-  "push_canvas",
-  "browser",
-  "schedule_task",
-  "manage_tasks",
-  "manage_webhooks",
-  "send_file",
-  "set_reminder",
-  "read_url",
-  "translate",
-];
-
 /**
  * Strip accidental tool-name leaks from LLM responses.
- * e.g. "/web_search Denmark Country" → "Denmark Country"
+ * e.g. "/web_search Denmark Country" → (empty, signals re-prompt needed)
+ *
+ * Returns empty string if the entire response was tool commands —
+ * the caller should then re-prompt rather than showing the raw text.
  */
 function sanitizeResponse(text: string): string {
   let cleaned = text;
   for (const name of TOOL_NAMES) {
     // Remove lines that are just "/tool_name" or "/tool_name some text"
-    cleaned = cleaned.replace(new RegExp(`^\\/${name}\\b.*$`, "gm"), "");
+    cleaned = cleaned.replace(new RegExp(`^\\/\\s*${name}\\b.*$`, "gm"), "");
+    // Also catch bare tool names at the start of a line without slash
+    cleaned = cleaned.replace(new RegExp(`^${name}\\s+[^\\n]+$`, "gm"), "");
   }
   // Collapse multiple blank lines into one
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
-  return cleaned || text; // fallback to original if everything was stripped
+  // Return empty string (not original) so caller knows to re-prompt
+  return cleaned;
 }
 
 // ── Error Messages ───────────────────────────────────────

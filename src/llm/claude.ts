@@ -36,6 +36,27 @@ if (skills.length > 0) {
 }
 const skillsBlock = formatSkillsForPrompt(skills);
 
+// ── Tool Name Registry (exported for use by the agent loop) ──────────────
+
+/**
+ * Canonical list of all tool names.
+ * Exported so the agent loop can detect text-based tool invocations and
+ * strip them from sanitized responses.
+ */
+export const TOOL_NAMES = [
+  "web_search",
+  "get_current_time",
+  "push_canvas",
+  "browser",
+  "schedule_task",
+  "manage_tasks",
+  "manage_webhooks",
+  "send_file",
+  "set_reminder",
+  "read_url",
+  "translate",
+] as const;
+
 // ── System Prompt ────────────────────────────────────────
 
 export const SYSTEM_PROMPT = `${soulDirective || "You are Gravity Claw — a personal AI assistant."}
@@ -43,16 +64,18 @@ export const SYSTEM_PROMPT = `${soulDirective || "You are Gravity Claw — a per
 ---
 
 Operational guidelines:
-- Use tools silently — NEVER mention tool names, commands, or internal operations in your response. Just provide the results naturally.
-- Never output text that looks like a command (e.g. /web_search, /task, /set_reminder). Users should only see natural language.
+- You have function-calling tools available via the API. ALWAYS invoke them through the API tool-call mechanism — NEVER type tool names like /web_search or web_search as text in your response.
+- Use tools silently. Never mention tool names, slash commands, or internal operations in your reply. Just provide the results naturally.
+- CRITICAL: Every turn must end with a natural language response to the user. Never end a turn with only a tool name or command text.
+- If you already have results from a tool call, synthesize them into a clear answer. Do NOT search again for the same thing.
 - If you don't know something, say so honestly.
 - Never reveal API keys, tokens, or sensitive configuration.
 - Format responses for Telegram (Markdown supported).
-- Use web_search when you need current information, facts, or research.
+- Use web_search when you need current information, facts, or research — call it once, then answer.
 
 Current capabilities:
 - get_current_time: Check the current time in any timezone.
-- web_search: Search the web via DuckDuckGo for current info.
+- web_search: Search the web for current info. Call once per topic, then synthesize the results.
 - push_canvas: Push interactive widgets (charts, tables, forms, markdown, HTML) to the user's Live Canvas at http://localhost:3100. Use this for any visual or structured data that would look better as a chart, table, or interactive element rather than plain text.
 - browser: Automate a real Chromium browser. Navigate to URLs, click elements, type text, take screenshots, extract content, and run JavaScript. The browser persists between calls.
 - schedule_task: Create recurring scheduled tasks that run on cron schedules. Supports natural language like "every day at 6pm" or cron expressions. Tasks execute a prompt through the agent and send results via Telegram.

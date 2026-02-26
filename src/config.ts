@@ -28,6 +28,7 @@ export const config = {
 
   llmModel: process.env.LLM_MODEL || "anthropic/claude-sonnet-4-20250514",
   fallbackModel: process.env.FALLBACK_MODEL || "",
+  llmTemperature: parseFloat(process.env.LLM_TEMPERATURE || "0.7"),
   maxAgentIterations: parseInt(process.env.MAX_AGENT_ITERATIONS || "10", 10),
 
   // ── Memory (Level 2) ──────────────────────────────────

@@ -4,27 +4,7 @@ import { createBot } from "./bot.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { getCurrentTime } from "./tools/get-current-time.js";
 import { webSearch } from "./tools/web-search.js";
-import { pushCanvas } from "./tools/push-canvas.js";
-import { browserTool } from "./tools/browser.js";
-import { scheduleTask } from "./tools/schedule-task.js";
-import { manageTasks } from "./tools/manage-tasks.js";
-import { webhookTool } from "./tools/webhook-tool.js";
-import { sendFile } from "./tools/send-file.js";
-import { setReminder } from "./tools/set-reminder.js";
 import { readUrl } from "./tools/read-url.js";
-import { translate } from "./tools/translate.js";
-import { startHeartbeat } from "./heartbeat/scheduler.js";
-import { loadAccountability } from "./heartbeat/accountability.js";
-import { startCanvasServer, setWebhookHandler } from "./canvas/server.js";
-import { initTaskScheduler } from "./scheduler/task-scheduler.js";
-import { loadFacts } from "./memory/facts-store.js";
-import { initReminders } from "./tools/set-reminder.js";
-import {
-  initWebhookManager,
-  handleWebhookTrigger,
-} from "./webhooks/webhook-manager.js";
-import { closeBrowser } from "./tools/browser-manager.js";
-import { setBotRef } from "./bot/bot-ref.js";
 
 // ── Main ─────────────────────────────────────────────────
 
@@ -33,58 +13,27 @@ async function main() {
     {
       model: config.llmModel,
       users: config.allowedUserIds,
-      maxIters: config.maxAgentIterations,
     },
-    "🦅 Gravity Claw — Level 3 (Tools & Automation)",
+    "🦅 Gravity Claw — Level 1 (Strict Reactivity)",
   );
 
-  // Register tools
+  // Register strictly limited tools
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(getCurrentTime);
   toolRegistry.register(webSearch);
-  toolRegistry.register(pushCanvas);
-  toolRegistry.register(browserTool);
-  toolRegistry.register(scheduleTask);
-  toolRegistry.register(manageTasks);
-  toolRegistry.register(webhookTool);
-  toolRegistry.register(sendFile);
-  toolRegistry.register(setReminder);
   toolRegistry.register(readUrl);
-  toolRegistry.register(translate);
+
   log.info(
     { count: toolRegistry.getOpenAITools().length },
     "🔧 Tools registered",
   );
 
-  // Start Live Canvas server (HTTP + WebSocket + Webhooks)
-  startCanvasServer();
-
   // Create bot (long-polling)
   const bot = createBot(toolRegistry);
-  setBotRef(bot);
-
-  // Start daily heartbeat (9:00 AM IST)
-  startHeartbeat(bot);
-
-  // Load user data from Pinecone (hydrate caches)
-  const allowedUserId = String(config.allowedUserIds[0]);
-  await loadFacts(allowedUserId);
-  await loadAccountability(allowedUserId);
-
-  // Init scheduled task engine (restores saved tasks from Pinecone)
-  await initTaskScheduler(bot, toolRegistry);
-
-  // Restore pending reminders from Pinecone
-  await initReminders();
-
-  // Init webhook manager + wire route handler into canvas server
-  initWebhookManager(bot, toolRegistry);
-  setWebhookHandler(handleWebhookTrigger);
 
   // Graceful shutdown
   const shutdown = async () => {
     log.info("👋 Shutting down Gravity Claw...");
-    await closeBrowser();
     bot.stop();
     process.exit(0);
   };

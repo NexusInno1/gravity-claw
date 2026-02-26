@@ -1,5 +1,5 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.js";
-import { llm, SYSTEM_PROMPT, TOOL_NAMES } from "../llm/claude.js";
+import { llm, getSystemPrompt, TOOL_NAMES } from "../llm/claude.js";
 import { config } from "../config.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { AgentResult } from "./types.js";
@@ -43,8 +43,8 @@ export async function runAgentLoop(
 
   // Build enriched system prompt
   const systemContent = memoryBlock
-    ? `${SYSTEM_PROMPT}\n\n${memoryBlock}`
-    : SYSTEM_PROMPT;
+    ? `${getSystemPrompt()}\n\n${memoryBlock}`
+    : getSystemPrompt();
 
   // Build messages: system + recent history + current user message
   const historyMessages: ChatCompletionMessageParam[] =

@@ -1,5 +1,5 @@
 import { InlineKeyboard } from "grammy";
-import { llm, SYSTEM_PROMPT } from "../llm/claude.js";
+import { llm, getSystemPrompt } from "../llm/claude.js";
 import { config } from "../config.js";
 import { getFacts } from "../memory/facts-store.js";
 import { buildMemoryContext } from "../memory/context-builder.js";
@@ -80,7 +80,7 @@ Remember: you're their accountability partner, not a motivational poster.`;
       model: config.llmModel,
       max_tokens: 512,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: getSystemPrompt() },
         { role: "user", content: prompt },
       ],
     });
@@ -150,7 +150,7 @@ Write a concise weekly review (under 250 words):
       model: config.llmModel,
       max_tokens: 512,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: getSystemPrompt() },
         { role: "user", content: prompt },
       ],
     });

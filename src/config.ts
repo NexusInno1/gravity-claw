@@ -26,7 +26,7 @@ export const config = {
     .map((id) => parseInt(id.trim(), 10))
     .filter((id) => !isNaN(id)),
 
-  llmModel: process.env.LLM_MODEL || "anthropic/claude-sonnet-4-20250514",
+  llmModel: process.env.LLM_MODEL || "google/gemini-2.5-flash:free",
   fallbackModel: process.env.FALLBACK_MODEL || "",
   llmTemperature: parseFloat(process.env.LLM_TEMPERATURE || "0.7"),
 } as const;

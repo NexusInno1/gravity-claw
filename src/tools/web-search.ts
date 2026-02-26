@@ -25,6 +25,7 @@ async function tavilySearch(
     headers: {
       "Content-Type": "application/json",
     },
+    signal: AbortSignal.timeout(15000), // 15s timeout
     body: JSON.stringify({
       api_key: config.tavilyApiKey,
       query: query,
@@ -72,6 +73,7 @@ async function duckduckgoSearch(
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     },
+    signal: AbortSignal.timeout(15000), // 15s timeout
   });
 
   const html = await response.text();

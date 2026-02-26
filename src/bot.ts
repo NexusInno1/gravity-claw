@@ -315,7 +315,9 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
       const file = await ctx.api.getFile(doc.file_id);
       const fileUrl = `https://api.telegram.org/file/bot${config.telegramBotToken}/${file.file_path}`;
 
-      const response = await fetch(fileUrl);
+      const response = await fetch(fileUrl, {
+        signal: AbortSignal.timeout(30000), // 30s timeout for large files
+      });
       const buffer = Buffer.from(await response.arrayBuffer());
 
       // Extract text from PDF
@@ -373,7 +375,9 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
       const file = await ctx.api.getFile(bestPhoto.file_id);
       const fileUrl = `https://api.telegram.org/file/bot${config.telegramBotToken}/${file.file_path}`;
 
-      const response = await fetch(fileUrl);
+      const response = await fetch(fileUrl, {
+        signal: AbortSignal.timeout(30000), // 30s timeout for images
+      });
       const buffer = Buffer.from(await response.arrayBuffer());
 
       // Convert to base64 data URL

@@ -52,21 +52,29 @@ export class ToolRegistry {
       return { error: `Unknown tool: ${name}` };
     }
     try {
-      const result = await Promise.race([
-        tool.execute(input),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `Tool "${name}" timed out after ${TOOL_TIMEOUT_MS / 1000}s`,
-                ),
+      let timeoutHandle: NodeJS.Timeout;
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Tool "${name}" timed out after ${TOOL_TIMEOUT_MS / 1000}s`,
               ),
-            TOOL_TIMEOUT_MS,
-          ),
-        ),
-      ]);
-      return result;
+            ),
+          TOOL_TIMEOUT_MS,
+        );
+      });
+
+      try {
+        const result = await Promise.race([
+          tool.execute(input),
+          timeoutPromise,
+        ]);
+        return result;
+      } finally {
+        clearTimeout(timeoutHandle!);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ tool: name, error: message }, `❌ Tool execution failed`);

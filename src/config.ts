@@ -29,22 +29,6 @@ export const config = {
   llmModel: process.env.LLM_MODEL || "anthropic/claude-sonnet-4-20250514",
   fallbackModel: process.env.FALLBACK_MODEL || "",
   llmTemperature: parseFloat(process.env.LLM_TEMPERATURE || "0.7"),
-  maxAgentIterations: parseInt(process.env.MAX_AGENT_ITERATIONS || "10", 10),
-
-  // ── Memory (Level 2) ──────────────────────────────────
-  pineconeApiKey: requireEnv("PINECONE_API_KEY"),
-  pineconeIndex: requireEnv("PINECONE_INDEX"),
-  memoryContextMessages: parseInt(
-    process.env.MEMORY_CONTEXT_MESSAGES || "20",
-    10,
-  ),
-  memorySemanticMatches: parseInt(
-    process.env.MEMORY_SEMANTIC_MATCHES || "5",
-    10,
-  ),
-
-  // ── Live Canvas (A2UI) ──────────────────────────────────
-  canvasPort: parseInt(process.env.CANVAS_PORT || "3100", 10),
 } as const;
 
 // ── Validation ───────────────────────────────────────────

@@ -16,14 +16,15 @@ export class ToolRegistry {
     return this.tools.get(name);
   }
 
-  getOpenAITools() {
-    return Array.from(this.tools.values()).map((t) => ({
-      type: "function" as const,
-      function: {
-        name: t.name,
-        description: t.description,
-        parameters: t.parameters,
+  getGeminiTools() {
+    return [
+      {
+        functionDeclarations: Array.from(this.tools.values()).map((t) => ({
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters,
+        })),
       },
-    }));
+    ];
   }
 }

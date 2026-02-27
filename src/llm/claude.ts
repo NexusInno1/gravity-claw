@@ -1,17 +1,12 @@
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { config } from "../config.js";
 import { log } from "../logger.js";
 
-// OpenRouter uses the OpenAI-compatible API
-export const llm = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: config.openRouterApiKey,
-  defaultHeaders: {
-    "HTTP-Referer": "https://github.com/gravity-claw",
-    "X-Title": "Gravity Claw",
-  },
+// Initialize Gemini Client
+export const ai = new GoogleGenAI({
+  apiKey: config.geminiApiKey,
 });
 
 // ── Load soul.md ─────────────────────────────────────────

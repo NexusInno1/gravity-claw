@@ -37,15 +37,15 @@ export const readUrl: ToolDefinition = {
     "Fetch a URL and extract its readable text content. Use this to read articles, blog posts, documentation, or any web page the user wants summarized or analyzed. Returns plain text stripped of HTML.",
 
   parameters: {
-    type: "object" as const,
+    type: "OBJECT",
     properties: {
       url: {
-        type: "string",
+        type: "STRING",
         description:
           "The full URL to fetch, e.g. 'https://example.com/article'.",
       },
       max_length: {
-        type: "number",
+        type: "NUMBER",
         description:
           "Maximum characters to return (default: 8000). Truncates if the page is longer.",
       },

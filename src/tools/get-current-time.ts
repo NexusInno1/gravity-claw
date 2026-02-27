@@ -5,15 +5,14 @@ export const getCurrentTime: ToolDefinition = {
   description:
     'Get the current date and time. Optionally specify an IANA timezone (e.g. "Asia/Kolkata", "America/New_York"). Defaults to UTC.',
   parameters: {
-    type: "object" as const,
+    type: "OBJECT",
     properties: {
       timezone: {
-        type: "string",
+        type: "STRING",
         description:
           'IANA timezone string (e.g. "Asia/Kolkata", "Europe/London"). Defaults to "UTC".',
       },
     },
-    required: [],
   },
 
   execute: async (input: Record<string, unknown>) => {

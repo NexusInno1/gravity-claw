@@ -135,14 +135,14 @@ export const webSearch: ToolDefinition = {
   description:
     "Search the web for current information. Automatically uses Tavily API (if configured) for high-quality extracted content, or falls back to DuckDuckGo search.",
   parameters: {
-    type: "object" as const,
+    type: "OBJECT",
     properties: {
       query: {
-        type: "string",
+        type: "STRING",
         description: "The search query string.",
       },
       max_results: {
-        type: "number",
+        type: "NUMBER",
         description:
           "Maximum number of results to return (default: 5, max: 10).",
       },

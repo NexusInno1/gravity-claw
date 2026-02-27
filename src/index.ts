@@ -24,7 +24,10 @@ async function main() {
   toolRegistry.register(readUrl);
 
   log.info(
-    { count: toolRegistry.getOpenAITools().length },
+    {
+      count:
+        toolRegistry.getGeminiTools()[0]?.functionDeclarations?.length || 0,
+    },
     "🔧 Tools registered",
   );
 

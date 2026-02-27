@@ -1,7 +1,7 @@
 import { Bot } from "grammy";
 import { log } from "./logger.js";
 import { config } from "./config.js";
-import { llm, getSystemPrompt } from "./llm/claude.js";
+import { ai, getSystemPrompt } from "./llm/claude.js";
 import { TOOL_NAMES } from "./llm/claude.js";
 import type { ToolRegistry } from "./tools/registry.js";
 
@@ -25,7 +25,7 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
       "🦅 *Gravity Claw is online\\.*\n\n" +
         "I'm your personal AI assistant\\. Send me a message and I'll help\\.\n\n" +
         `• Model: \`${escapeMarkdownV2(config.llmModel)}\`\n` +
-        `• Tools: ${toolRegistry.getOpenAITools().length}\n\n` +
+        `• Tools: ${toolRegistry.getGeminiTools()[0]?.functionDeclarations?.length || 0}\n\n` +
         "Type /help for available commands\\.",
       { parse_mode: "MarkdownV2" },
     );
@@ -49,8 +49,8 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
 
   // ── /status ─────────────────────────────────────────
   bot.command("status", async (ctx) => {
-    const tools = toolRegistry.getOpenAITools();
-    const toolNames = tools.map((t) => t.function.name).join(", ");
+    const tools = toolRegistry.getGeminiTools()[0]?.functionDeclarations ?? [];
+    const toolNames = tools.map((t: any) => t.name).join(", ");
 
     await ctx.reply(
       "🦅 *Bot Status*\n" +
@@ -84,86 +84,101 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
     await ctx.api.sendChatAction(ctx.chat.id, "typing");
 
     try {
-      const messages: any[] = [{ role: "system", content: getSystemPrompt() }];
+      const contents: any[] = [];
+      const parts: any[] = [];
 
       if (imageUrl) {
-        messages.push({
-          role: "user",
-          content: [
-            { type: "text", text: userMessage },
-            {
-              type: "image_url",
-              image_url: { url: imageUrl },
-            },
-          ],
+        // Strip the data URL prefix "data:image/jpeg;base64,"
+        const base64Data = imageUrl.split(",")[1] ?? "";
+        parts.push({
+          inlineData: {
+            data: base64Data,
+            mimeType: "image/jpeg",
+          },
         });
-      } else {
-        messages.push({ role: "user", content: userMessage });
       }
+      parts.push({ text: userMessage });
 
-      const openAiTools = toolRegistry.getOpenAITools();
+      contents.push({ role: "user", parts });
+
+      const geminiTools: any = toolRegistry.getGeminiTools();
 
       // Call LLM
-      const response = await llm.chat.completions.create({
+      const response = await ai.models.generateContent({
         model: config.llmModel,
-        messages: messages,
-        tools: openAiTools.length > 0 ? openAiTools : undefined,
-        temperature: config.llmTemperature,
+        contents: contents,
+        config: {
+          systemInstruction: getSystemPrompt(),
+          tools: geminiTools,
+          temperature: config.llmTemperature,
+        },
       });
 
-      const message = response.choices[0]?.message;
+      const message = response.candidates?.[0]?.content;
 
-      if (!message) {
+      if (!message || !message.parts) {
         await ctx.reply("⚠️ No response from the model.");
         return;
       }
 
       // Handle tool calls if any
-      if (message.tool_calls && message.tool_calls.length > 0) {
-        messages.push(message); // Add assistant's tool call message
+      const functionCalls = message.parts
+        .filter((p: any) => p.functionCall)
+        .map((p: any) => p.functionCall);
 
-        for (const toolCall of message.tool_calls) {
-          const toolName = toolCall.function.name;
-          const rawArgs = toolCall.function.arguments;
-          log.info({ tool: toolName, args: rawArgs }, "🔧 Executing tool");
+      if (functionCalls.length > 0) {
+        contents.push({ role: "model", parts: message.parts }); // Add assistant's tool call message
+
+        const functionResponses: any[] = [];
+
+        for (const toolCall of functionCalls) {
+          const toolName = toolCall.name;
+          const args = toolCall.args;
+          log.info({ tool: toolName, args }, "🔧 Executing tool");
 
           const tool = toolRegistry.get(toolName);
           if (!tool) {
-            messages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: JSON.stringify({ error: `Tool ${toolName} not found` }),
+            functionResponses.push({
+              name: toolName,
+              response: { error: `Tool ${toolName} not found` },
             });
             continue;
           }
 
           try {
-            const args = JSON.parse(rawArgs);
             const result = await tool.execute(args);
-            messages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content:
-                typeof result === "string" ? result : JSON.stringify(result),
+            functionResponses.push({
+              name: toolName,
+              response: { result },
             });
           } catch (err: any) {
             log.error({ err, tool: toolName }, "❌ Tool execution failed");
-            messages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: JSON.stringify({ error: err.message || String(err) }),
+            functionResponses.push({
+              name: toolName,
+              response: { error: err.message || String(err) },
             });
           }
         }
 
-        // Get final response after tools
-        const finalResponse = await llm.chat.completions.create({
-          model: config.llmModel,
-          messages: messages,
-          temperature: config.llmTemperature,
+        contents.push({
+          role: "user",
+          parts: functionResponses.map((r) => ({
+            functionResponse: r,
+          })),
         });
 
-        const finalContent = finalResponse.choices[0]?.message?.content;
+        // Get final response after tools
+        const finalResponse = await ai.models.generateContent({
+          model: config.llmModel,
+          contents: contents,
+          config: {
+            systemInstruction: getSystemPrompt(),
+            tools: geminiTools,
+            temperature: config.llmTemperature,
+          },
+        });
+
+        const finalContent = finalResponse.text;
         if (finalContent) {
           await ctx.reply(sanitizeResponse(finalContent));
         } else {
@@ -171,9 +186,9 @@ export function createBot(toolRegistry: ToolRegistry): Bot {
             "⚠️ Could not generate a final response after using tools.",
           );
         }
-      } else if (message.content) {
+      } else if (response.text) {
         // Direct answer
-        await ctx.reply(sanitizeResponse(message.content));
+        await ctx.reply(sanitizeResponse(response.text));
       }
     } catch (error) {
       log.error(error, "❌ Agent error");

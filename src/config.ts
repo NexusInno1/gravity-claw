@@ -18,7 +18,7 @@ function requireEnv(key: string): string {
 
 export const config = {
   telegramBotToken: requireEnv("TELEGRAM_BOT_TOKEN"),
-  openRouterApiKey: requireEnv("OPENROUTER_API_KEY"),
+  geminiApiKey: requireEnv("GEMINI_API_KEY"),
   tavilyApiKey: process.env.TAVILY_API_KEY || "", // Optional, enables better search
 
   allowedUserIds: requireEnv("ALLOWED_USER_IDS")
@@ -26,7 +26,7 @@ export const config = {
     .map((id) => parseInt(id.trim(), 10))
     .filter((id) => !isNaN(id)),
 
-  llmModel: process.env.LLM_MODEL || "google/gemini-2.5-flash:free",
+  llmModel: process.env.LLM_MODEL || "arcee-ai/trinity-large-preview:free",
   fallbackModel: process.env.FALLBACK_MODEL || "",
   llmTemperature: parseFloat(process.env.LLM_TEMPERATURE || "0.7"),
 } as const;

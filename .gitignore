@@ -27,6 +27,5 @@ npm-debug.log*
 dist/
 .next/
 
-# Mission control dependencies
-mission-control/node_modules/
-mission-control/.next/
+# Mission control (local only, not deployed)
+mission-control/

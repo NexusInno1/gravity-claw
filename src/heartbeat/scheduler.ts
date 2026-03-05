@@ -22,6 +22,58 @@ export interface HeartbeatJob {
 // Track last run date per job to prevent duplicate sends
 const lastRunDates = new Map<string, string>();
 
+// Module-level reference to active jobs (set during startHeartbeat)
+let activeJobs: HeartbeatJob[] = [];
+
+/**
+ * Get a formatted status string of all heartbeat jobs.
+ */
+export function getHeartbeatStatus(): string {
+  if (activeJobs.length === 0) {
+    return "⏸️ No heartbeat jobs are active.";
+  }
+
+  const lines: string[] = ["**⏱️ Heartbeat Status**\n"];
+  const { dateKey: today } = getISTNow();
+
+  for (const job of activeJobs) {
+    const timeStr = `${String(job.hour).padStart(2, "0")}:${String(job.minute).padStart(2, "0")}`;
+    const runKey = `${job.name}_${today}`;
+    const ranToday = lastRunDates.has(runKey);
+    const status = ranToday ? "✅ Ran today" : "⏳ Pending";
+    lines.push(`• **${job.name}** — ${timeStr} IST (${status})`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Update the scheduled time for a job by name.
+ * Returns true if the job was found and updated.
+ */
+export function updateHeartbeatTime(
+  jobName: string,
+  newHour: number,
+  newMinute: number,
+): boolean {
+  const job = activeJobs.find((j) => j.name === jobName);
+  if (!job) return false;
+
+  const oldTime = `${String(job.hour).padStart(2, "0")}:${String(job.minute).padStart(2, "0")}`;
+  job.hour = newHour;
+  job.minute = newMinute;
+  const newTime = `${String(newHour).padStart(2, "0")}:${String(newMinute).padStart(2, "0")}`;
+
+  // Clear today's run flag so it can fire again at the new time
+  const { dateKey: today } = getISTNow();
+  lastRunDates.delete(`${jobName}_${today}`);
+
+  console.log(
+    `[Heartbeat] "${jobName}" rescheduled: ${oldTime} → ${newTime} IST`,
+  );
+  return true;
+}
+
 /**
  * Get the current date and time in IST.
  */
@@ -54,6 +106,9 @@ export function startHeartbeat(
 ): void {
   console.log(`[Heartbeat] Scheduler started with ${jobs.length} job(s).`);
   console.log(`[Heartbeat] Target chat: ${chatId}`);
+
+  // Store reference for runtime introspection and updates
+  activeJobs = jobs;
 
   for (const job of jobs) {
     const timeStr = `${String(job.hour).padStart(2, "0")}:${String(job.minute).padStart(2, "0")}`;

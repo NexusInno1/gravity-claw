@@ -24,6 +24,11 @@ import {
   executeRememberFact,
 } from "../tools/remember_fact.js";
 import { webSearchDefinition, executeWebSearch } from "../tools/web_search.js";
+import { readUrlDefinition, executeReadUrl } from "../tools/read_url.js";
+import {
+  setReminderDefinition,
+  executeSetReminder,
+} from "../tools/set_reminder.js";
 
 import { buildCoreMemoryPrompt, getCoreMemory } from "../memory/core.js";
 import { saveMessage, getRecentMessages } from "../memory/buffer.js";
@@ -52,6 +57,8 @@ const availableTools = [
   getCurrentTimeDefinition,
   rememberFactDefinition,
   webSearchDefinition,
+  readUrlDefinition,
+  setReminderDefinition,
 ];
 
 // Tool usage rules (appended after soul)
@@ -198,6 +205,15 @@ export async function runAgentLoop(
             toolOutputText = await executeWebSearch(
               (call.args as { query: string }).query,
             );
+          } else if (call.name === "read_url") {
+            toolOutputText = await executeReadUrl(
+              (call.args as { url: string }).url,
+            );
+          } else if (call.name === "set_reminder") {
+            toolOutputText = await executeSetReminder(
+              call.args as { message: string; minutes: number },
+              chatId,
+            );
           } else {
             toolOutputText = `Error: Unknown tool ${call.name}`;
           }
@@ -232,6 +248,144 @@ export async function runAgentLoop(
       // Trigger background fact extraction (Tier 3 — async, never blocks)
       triggerFactExtraction(userMessage, finalResponse || "");
 
+      return finalResponse || "No text response generated.";
+    }
+  }
+
+  return (
+    "Error: Agent reached maximum iterations (" +
+    MAX_ITERATIONS +
+    ") without answering."
+  );
+}
+
+/**
+ * Agent loop variant that accepts an image for multimodal (vision) queries.
+ *
+ * @param userMessage Text accompanying the image (or a default prompt)
+ * @param chatId The Telegram chat ID
+ * @param imageBase64 Base64-encoded image data
+ * @param mimeType The image MIME type (e.g. "image/jpeg")
+ */
+export async function runAgentLoopWithImage(
+  userMessage: string,
+  chatId: string,
+  imageBase64: string,
+  mimeType: string,
+): Promise<string> {
+  // Save a text note to buffer (we can't store binary images)
+  await saveMessage(chatId, "user", `[Sent an image] ${userMessage}`);
+
+  const systemInstruction = await buildSystemInstruction(chatId, userMessage);
+
+  // Build multimodal content with inline image data
+  const contents: Content[] = [
+    {
+      role: "user",
+      parts: [
+        { text: userMessage },
+        {
+          inlineData: {
+            mimeType,
+            data: imageBase64,
+          },
+        },
+      ],
+    },
+  ];
+
+  let iterationCount = 0;
+
+  while (iterationCount < MAX_ITERATIONS) {
+    iterationCount++;
+    console.log(`[Agent/Vision] Iteration ${iterationCount}/${MAX_ITERATIONS}`);
+
+    const response = await withRetry(
+      () =>
+        getAI().models.generateContent({
+          model: ENV.GEMINI_MODEL,
+          contents,
+          config: {
+            tools: availableTools,
+            systemInstruction,
+            temperature: 0.7,
+          },
+        }),
+      {
+        contents,
+        systemInstruction,
+        tools: availableTools,
+        temperature: 0.7,
+      },
+    );
+
+    if (!response.candidates || response.candidates.length === 0) {
+      return "Error: Empty response from model.";
+    }
+
+    const candidate = response.candidates[0];
+    if (!candidate.content || !candidate.content.parts) {
+      return "Error: Empty content from model.";
+    }
+
+    const messageParts = candidate.content.parts;
+    contents.push({ role: "model", parts: messageParts });
+
+    const toolCalls = messageParts.filter((part) => part.functionCall);
+
+    if (toolCalls.length > 0) {
+      const toolResultParts: Part[] = [];
+
+      for (const callPart of toolCalls) {
+        const call = callPart.functionCall!;
+        console.log(`[Agent/Vision] Tool requested: ${call.name}`);
+
+        let toolOutputText = "";
+        try {
+          if (call.name === "get_current_time") {
+            toolOutputText = await executeGetCurrentTime();
+          } else if (call.name === "remember_fact") {
+            toolOutputText = await executeRememberFact(
+              call.args as { key: string; value: string },
+            );
+          } else if (call.name === "web_search") {
+            toolOutputText = await executeWebSearch(
+              (call.args as { query: string }).query,
+            );
+          } else if (call.name === "read_url") {
+            toolOutputText = await executeReadUrl(
+              (call.args as { url: string }).url,
+            );
+          } else if (call.name === "set_reminder") {
+            toolOutputText = await executeSetReminder(
+              call.args as { message: string; minutes: number },
+              chatId,
+            );
+          } else {
+            toolOutputText = `Error: Unknown tool ${call.name}`;
+          }
+        } catch (error) {
+          toolOutputText = `Error calling tool: ${String(error)}`;
+        }
+
+        toolResultParts.push({
+          functionResponse: {
+            name: call.name,
+            response: { result: toolOutputText },
+          },
+        });
+      }
+
+      contents.push({ role: "user", parts: toolResultParts });
+    } else {
+      const texts = messageParts.filter((p) => p.text).map((p) => p.text);
+      const finalResponse = texts.join("\n").trim();
+
+      if (finalResponse) {
+        await saveMessage(chatId, "model", finalResponse);
+      }
+
+      triggerFactExtraction(userMessage, finalResponse || "");
       return finalResponse || "No text response generated.";
     }
   }

@@ -14,6 +14,7 @@
 
 import { getSupabase } from "../lib/supabase.js";
 import { getAI, withRetry } from "../lib/gemini.js";
+import { ENV } from "../config.js";
 
 /**
  * Generate an embedding for a given text using Gemini.
@@ -242,7 +243,7 @@ Return ONLY the JSON array, no other text.`;
     const response = await withRetry(
       () =>
         getAI().models.generateContent({
-          model: "gemini-2.5-flash",
+          model: ENV.GEMINI_MODEL,
           contents: extractionContents,
           config: { temperature: 0.2 },
         }),

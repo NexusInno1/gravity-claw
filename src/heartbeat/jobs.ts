@@ -7,8 +7,10 @@
 
 import { Bot } from "grammy";
 import { getAI, withRetry } from "../lib/gemini.js";
+import { ENV } from "../config.js";
 import { executeWebSearch } from "../tools/web_search.js";
 import { buildCoreMemoryPrompt, getCoreMemory } from "../memory/core.js";
+import { saveMessage } from "../memory/buffer.js";
 import { HeartbeatJob } from "./scheduler.js";
 
 /**
@@ -63,7 +65,7 @@ Keep it SHORT and punchy. No fluff, no filler. Total message should be under 300
     const response = await withRetry(
       () =>
         getAI().models.generateContent({
-          model: "gemini-2.5-flash",
+          model: ENV.GEMINI_MODEL,
           contents: heartbeatContents,
           config: { temperature: 0.7 },
         }),
@@ -83,6 +85,8 @@ Keep it SHORT and punchy. No fluff, no filler. Total message should be under 300
         .trim() || "Good morning! What's your biggest goal today?";
 
     await bot.api.sendMessage(chatId, message);
+    // Save to conversation buffer so bot has context when user replies
+    await saveMessage(chatId, "model", message);
     console.log("[Heartbeat] Morning check-in sent successfully.");
   } catch (err) {
     console.error("[Heartbeat] Failed to send morning check-in:", err);

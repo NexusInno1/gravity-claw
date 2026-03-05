@@ -12,6 +12,7 @@
 
 import { Content, Part } from "@google/genai";
 import { getAI, withRetry } from "../lib/gemini.js";
+import { ENV } from "../config.js";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import {
@@ -141,7 +142,7 @@ export async function runAgentLoop(
     const response = await withRetry(
       () =>
         getAI().models.generateContent({
-          model: "gemini-2.5-flash",
+          model: ENV.GEMINI_MODEL,
           contents,
           config: {
             tools: availableTools,

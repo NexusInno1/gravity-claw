@@ -9,6 +9,7 @@
 import { getSupabase } from "../lib/supabase.js";
 import { setCoreMemory } from "./core.js";
 import { getAI, withRetry } from "../lib/gemini.js";
+import { ENV } from "../config.js";
 
 const MAX_BUFFER_SIZE = 20;
 
@@ -146,7 +147,7 @@ ${transcript}`,
     const response = await withRetry(
       () =>
         getAI().models.generateContent({
-          model: "gemini-2.5-flash",
+          model: ENV.GEMINI_MODEL,
           contents: compactionContents,
           config: { temperature: 0.3 },
         }),

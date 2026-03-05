@@ -86,14 +86,27 @@ bot.on("message:text", async (ctx) => {
   const chatId = String(ctx.chat.id);
 
   console.log(`[Bot] Received message from ${ctx.from.id}: ${userMessage}`);
-  // Notify user we are thinking
+
+  // Start a typing indicator loop — pulses every 4s so the user sees activity
   await ctx.replyWithChatAction("typing");
+  const typingInterval = setInterval(() => {
+    ctx.replyWithChatAction("typing").catch(() => {});
+  }, 4000);
 
   try {
     const response = await runAgentLoop(userMessage, chatId);
+    clearInterval(typingInterval);
     await sendMessage(ctx, response);
   } catch (error) {
+    clearInterval(typingInterval);
     console.error("[Bot Error]", error);
     await ctx.reply("System error occurred. Check logs.");
   }
+});
+
+// Catch-all for non-text messages (images, voice, stickers, etc.)
+bot.on("message", async (ctx) => {
+  await ctx.reply(
+    "I can only handle text messages right now. Send me text and I'll get to work.",
+  );
 });

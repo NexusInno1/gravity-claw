@@ -1,20 +1,28 @@
 /**
- * Core Agent Loop — with 3-Tier Memory Integration
+ * Core Agent Loop — with 3-Tier Memory, Skills, and MCP Integration
  *
  * Context Assembly Order:
- *   1. System rules
- *   2. Tier 1 Core Memory
- *   3. Tier 2 Rolling Summary
- *   4. Tier 2 Recent Messages
- *   5. Tier 3 Top 3-5 Semantic Memories
- *   6. Current user message
+ *   1. System rules (soul.md)
+ *   2. Active Skills
+ *   3. Tool usage rules
+ *   4. Tier 1 Core Memory
+ *   5. Tier 2 Rolling Summary
+ *   6. Tier 2 Recent Messages
+ *   7. Tier 3 Top 3-5 Semantic Memories
+ *   8. Current user message
+ *
+ * Tool Registry:
+ *   Built-in tools are registered at startup.
+ *   MCP tools are merged dynamically on each iteration.
  */
 
-import { Content, Part } from "@google/genai";
+import { Content, Part, Tool } from "@google/genai";
 import { getAI, withRetry } from "../lib/gemini.js";
 import { ENV } from "../config.js";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+
+// Built-in tools
 import {
   getCurrentTimeDefinition,
   executeGetCurrentTime,
@@ -29,7 +37,12 @@ import {
   setReminderDefinition,
   executeSetReminder,
 } from "../tools/set_reminder.js";
+import {
+  browsePageDefinition,
+  executeBrowsePage,
+} from "../tools/browse_page.js";
 
+// Memory tiers
 import { buildCoreMemoryPrompt, getCoreMemory } from "../memory/core.js";
 import { saveMessage, getRecentMessages } from "../memory/buffer.js";
 import {
@@ -37,12 +50,16 @@ import {
   triggerFactExtraction,
 } from "../memory/semantic.js";
 
-// Initialize the Gemini client
-// Gemini client is now managed centrally via lib/gemini.ts with key rotation
+// Skills system
+import { loadSkills, buildSkillsPrompt } from "../skills/skills.js";
+
+// MCP system
+import { mcpManager } from "../mcp/mcp-manager.js";
 
 const MAX_ITERATIONS = 5;
 
-// Load soul.md once at startup
+// ─── Soul + Skills (loaded once at startup) ──────────────────────
+
 let soulPrompt = "";
 try {
   soulPrompt = readFileSync(resolve(process.cwd(), "soul.md"), "utf-8");
@@ -52,16 +69,57 @@ try {
   soulPrompt = "You are Gravity Claw, a sharp personal AI agent.";
 }
 
-// Combine all tool definitions
-const availableTools = [
+const skills = loadSkills(resolve(process.cwd(), "skills"));
+const skillsPrompt = buildSkillsPrompt(skills);
+
+// ─── Tool Registry ───────────────────────────────────────────────
+
+/** A registered tool executor function */
+type ToolExecutor = (
+  args: Record<string, unknown>,
+  chatId: string,
+) => Promise<string>;
+
+/** Map of tool name → executor function */
+const toolRegistry = new Map<string, ToolExecutor>();
+
+// Register built-in tools
+toolRegistry.set("get_current_time", async () => executeGetCurrentTime());
+toolRegistry.set(
+  "remember_fact",
+  async (args) =>
+    executeRememberFact(args as { key: string; value: string }),
+);
+toolRegistry.set(
+  "web_search",
+  async (args) => executeWebSearch((args as { query: string }).query),
+);
+toolRegistry.set(
+  "read_url",
+  async (args) => executeReadUrl((args as { url: string }).url),
+);
+toolRegistry.set("set_reminder", async (args, chatId) =>
+  executeSetReminder(args as { message: string; minutes: number }, chatId),
+);
+toolRegistry.set(
+  "browse_page",
+  async (args) =>
+    executeBrowsePage(
+      args as { url: string; wait_for?: string; extract_selector?: string },
+    ),
+);
+
+/** Built-in tool definitions (static) */
+const builtinToolDefs: Tool[] = [
   getCurrentTimeDefinition,
   rememberFactDefinition,
   webSearchDefinition,
   readUrlDefinition,
   setReminderDefinition,
+  browsePageDefinition,
 ];
 
-// Tool usage rules (appended after soul)
+// Tool usage rules (appended after soul + skills)
 const toolRules =
   "Use the remember_fact tool ONLY when the user states a clear preference, " +
   "defines a long-term goal, provides personal profile info, sets a recurring " +
@@ -70,6 +128,8 @@ const toolRules =
   "You CAN answer general knowledge questions (people, places, history, science, etc.) " +
   "directly from your training data — you do NOT need a tool for that. " +
   "Only use tools when you need real-time or dynamic information.";
+
+// ─── System Instruction Builder ──────────────────────────────────
 
 /**
  * Build the full system instruction with all memory tiers injected.
@@ -82,39 +142,79 @@ async function buildSystemInstruction(
 
   // 1. Soul + system rules
   parts.push(soulPrompt);
+
+  // 2. Skills
+  if (skillsPrompt) {
+    parts.push(skillsPrompt);
+  }
+
+  // 3. Tool usage rules
   parts.push(toolRules);
 
-  // 2. Tier 1 Core Memory
+  // 4. Tier 1 Core Memory
   const coreMemory = buildCoreMemoryPrompt();
   if (coreMemory) {
     parts.push(coreMemory);
   }
 
-  // 3. Tier 2 Rolling Summary
+  // 5. Tier 2 Rolling Summary
   const rollingSummary = getCoreMemory(`rolling_summary_${chatId}`);
   if (rollingSummary) {
     parts.push(`## Conversation Summary (Older Context)\n${rollingSummary}`);
   }
 
-  // 4. Tier 3 Semantic Memories (top 3-5)
+  // 6. Tier 3 Semantic Memories (top 3-5)
   try {
     const semanticBlock = await buildSemanticPrompt(userMessage);
     if (semanticBlock) {
       parts.push(semanticBlock);
     }
   } catch (err) {
-    // Graceful degradation — skip Tier 3 silently
     console.warn("[Loop] Semantic memory unavailable, skipping Tier 3.");
   }
 
   return parts.join("\n\n");
 }
 
+// ─── Tool Execution Helper ───────────────────────────────────────
+
+/**
+ * Execute a tool by name, checking the registry first, then MCP.
+ */
+async function executeTool(
+  name: string,
+  args: Record<string, unknown>,
+  chatId: string,
+): Promise<string> {
+  // Check built-in registry
+  const executor = toolRegistry.get(name);
+  if (executor) {
+    return executor(args, chatId);
+  }
+
+  // Check MCP tools
+  if (mcpManager.isMcpTool(name)) {
+    return mcpManager.executeMcpTool(name, args);
+  }
+
+  return `Error: Unknown tool "${name}"`;
+}
+
+// ─── Agent Loop ──────────────────────────────────────────────────
+
+/**
+ * Get all available tool definitions (built-in + MCP).
+ */
+function getAllTools(): Tool[] {
+  const mcpTools = mcpManager.getAllMcpTools();
+  return [...builtinToolDefs, ...mcpTools];
+}
+
 /**
  * The core agentic loop with memory integration.
  *
  * @param userMessage The message text from the user
- * @param chatId The Telegram chat ID for memory scoping
+ * @param chatId The chat ID for memory scoping
  * @returns The final text response from the agent
  */
 export async function runAgentLoop(
@@ -139,6 +239,7 @@ export async function runAgentLoop(
     contents.push({ role: "user", parts: [{ text: userMessage }] });
   }
 
+  const availableTools = getAllTools();
   let iterationCount = 0;
 
   while (iterationCount < MAX_ITERATIONS) {
@@ -177,7 +278,7 @@ export async function runAgentLoop(
 
     const messageParts = candidate.content.parts;
 
-    // Append Gemini's response to history
+    // Append model's response to history
     contents.push({
       role: "model",
       parts: messageParts,
@@ -195,28 +296,11 @@ export async function runAgentLoop(
 
         let toolOutputText = "";
         try {
-          if (call.name === "get_current_time") {
-            toolOutputText = await executeGetCurrentTime();
-          } else if (call.name === "remember_fact") {
-            toolOutputText = await executeRememberFact(
-              call.args as { key: string; value: string },
-            );
-          } else if (call.name === "web_search") {
-            toolOutputText = await executeWebSearch(
-              (call.args as { query: string }).query,
-            );
-          } else if (call.name === "read_url") {
-            toolOutputText = await executeReadUrl(
-              (call.args as { url: string }).url,
-            );
-          } else if (call.name === "set_reminder") {
-            toolOutputText = await executeSetReminder(
-              call.args as { message: string; minutes: number },
-              chatId,
-            );
-          } else {
-            toolOutputText = `Error: Unknown tool ${call.name}`;
-          }
+          toolOutputText = await executeTool(
+            call.name!,
+            (call.args as Record<string, unknown>) || {},
+            chatId,
+          );
         } catch (error) {
           toolOutputText = `Error calling tool: ${String(error)}`;
         }
@@ -263,7 +347,7 @@ export async function runAgentLoop(
  * Agent loop variant that accepts an image for multimodal (vision) queries.
  *
  * @param userMessage Text accompanying the image (or a default prompt)
- * @param chatId The Telegram chat ID
+ * @param chatId The chat ID
  * @param imageBase64 Base64-encoded image data
  * @param mimeType The image MIME type (e.g. "image/jpeg")
  */
@@ -294,6 +378,7 @@ export async function runAgentLoopWithImage(
     },
   ];
 
+  const availableTools = getAllTools();
   let iterationCount = 0;
 
   while (iterationCount < MAX_ITERATIONS) {
@@ -342,28 +427,11 @@ export async function runAgentLoopWithImage(
 
         let toolOutputText = "";
         try {
-          if (call.name === "get_current_time") {
-            toolOutputText = await executeGetCurrentTime();
-          } else if (call.name === "remember_fact") {
-            toolOutputText = await executeRememberFact(
-              call.args as { key: string; value: string },
-            );
-          } else if (call.name === "web_search") {
-            toolOutputText = await executeWebSearch(
-              (call.args as { query: string }).query,
-            );
-          } else if (call.name === "read_url") {
-            toolOutputText = await executeReadUrl(
-              (call.args as { url: string }).url,
-            );
-          } else if (call.name === "set_reminder") {
-            toolOutputText = await executeSetReminder(
-              call.args as { message: string; minutes: number },
-              chatId,
-            );
-          } else {
-            toolOutputText = `Error: Unknown tool ${call.name}`;
-          }
+          toolOutputText = await executeTool(
+            call.name!,
+            (call.args as Record<string, unknown>) || {},
+            chatId,
+          );
         } catch (error) {
           toolOutputText = `Error calling tool: ${String(error)}`;
         }

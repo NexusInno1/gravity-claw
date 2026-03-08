@@ -1,5 +1,5 @@
 import { Context, NextFunction } from "grammy";
-import { ENV } from "../../config.js";
+import { ENV } from "../config.js";
 
 /**
  * Grammy middleware to silently drop messages from unauthorized users.

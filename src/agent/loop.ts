@@ -31,7 +31,12 @@ import {
   rememberFactDefinition,
   executeRememberFact,
 } from "../tools/remember_fact.js";
-import { webSearchDefinition, executeWebSearch } from "../tools/web_search.js";
+import {
+  webSearchDefinition,
+  executeWebSearch,
+  webResearchDefinition,
+  executeWebResearch,
+} from "../tools/web_search.js";
 import { readUrlDefinition, executeReadUrl } from "../tools/read_url.js";
 import {
   setReminderDefinition,
@@ -95,6 +100,10 @@ toolRegistry.set(
   async (args) => executeWebSearch((args as { query: string }).query),
 );
 toolRegistry.set(
+  "web_research",
+  async (args) => executeWebResearch((args as { query: string }).query),
+);
+toolRegistry.set(
   "read_url",
   async (args) => executeReadUrl((args as { url: string }).url),
 );
@@ -114,6 +123,7 @@ const builtinToolDefs: Tool[] = [
   getCurrentTimeDefinition,
   rememberFactDefinition,
   webSearchDefinition,
+  webResearchDefinition,
   readUrlDefinition,
   setReminderDefinition,
   browsePageDefinition,

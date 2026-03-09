@@ -7,8 +7,9 @@
 
 import { Bot } from "grammy";
 import { getAI, withRetry } from "../lib/gemini.js";
-import { ENV } from "../config.js";
 import { executeWebSearch } from "../tools/web_search.js";
+import { executeSerperSearch } from "../tools/serper_search.js";
+import { ENV } from "../config.js";
 import { buildCoreMemoryPrompt, getCoreMemory } from "../memory/core.js";
 import { saveMessage } from "../memory/buffer.js";
 import { HeartbeatJob } from "./scheduler.js";
@@ -27,7 +28,11 @@ async function morningCheckin(bot: Bot, chatId: string): Promise<void> {
   // 1. Fetch global news
   let newsContext = "";
   try {
-    newsContext = await executeWebSearch(
+    // Prefer Serper (Google) for news links, fall back to Tavily
+    const searchFn = ENV.SERPER_API_KEY
+      ? executeSerperSearch
+      : executeWebSearch;
+    newsContext = await searchFn(
       "top global news headlines today " +
         new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
     );

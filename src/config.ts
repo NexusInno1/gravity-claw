@@ -50,11 +50,19 @@ const allowedUsers = new Set(
   }),
 );
 
-// Tavily Search (optional — graceful degradation if missing)
+// Tavily Search (optional — used for structured/research queries)
 const tavilyApiKey = process.env.TAVILY_API_KEY || "";
 if (!tavilyApiKey) {
   console.warn(
-    "[Config] TAVILY_API_KEY missing — web search will be unavailable.",
+    "[Config] TAVILY_API_KEY missing — web_research tool will be unavailable.",
+  );
+}
+
+// Serper / Google Search (optional — used for direct link queries)
+const serperApiKey = process.env.SERPER_API_KEY || "";
+if (!serperApiKey) {
+  console.warn(
+    "[Config] SERPER_API_KEY missing — web_search will fall back to Tavily.",
   );
 }
 
@@ -82,6 +90,7 @@ export const ENV = {
   SUPABASE_URL: supabaseUrl,
   SUPABASE_SERVICE_ROLE_KEY: supabaseKey,
   TAVILY_API_KEY: tavilyApiKey,
+  SERPER_API_KEY: serperApiKey,
   OPENROUTER_API_KEY: openrouterApiKey,
   OPENROUTER_MODEL: openrouterModel,
 };

@@ -2,7 +2,7 @@ import { TelegramChannel } from "./channels/telegram.js";
 import { ENV } from "./config.js";
 import { loadCoreMemories } from "./memory/core.js";
 import { isSupabaseReady } from "./lib/supabase.js";
-import { startHeartbeat } from "./heartbeat/scheduler.js";
+import { startHeartbeat, stopHeartbeat } from "./heartbeat/scheduler.js";
 import { heartbeatJobs } from "./heartbeat/jobs.js";
 import type { IncomingMessage } from "./channels/types.js";
 import { runAgentLoop, runAgentLoopWithImage } from "./agent/loop.js";
@@ -61,6 +61,7 @@ async function start() {
   // Graceful shutdown handlers
   const shutdown = () => {
     console.log("🔴 Gravity Claw shutdown signal received — cleaning up...");
+    stopHeartbeat();
     mcpManager.shutdown().catch(() => {});
     channel.stop();
     process.exit(0);

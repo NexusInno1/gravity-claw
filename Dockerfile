@@ -12,7 +12,8 @@ RUN npm ci
 COPY src/ ./src/
 COPY tsconfig.json ./
 COPY soul.md ./
-COPY models.json ./
+COPY skills/ ./skills/
+COPY mcp.json ./
 
 # Start the bot
 CMD ["npx", "tsx", "src/index.ts"]

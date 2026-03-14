@@ -75,6 +75,29 @@ export async function setCoreMemory(key: string, value: string): Promise<void> {
 }
 
 /**
+ * Delete a core memory entry.
+ * Removes from both cache and Supabase.
+ */
+export async function deleteCoreMemory(key: string): Promise<void> {
+  cache.delete(key);
+
+  const sb = getSupabase();
+  if (!sb) return;
+
+  try {
+    const { error } = await sb
+      .from("core_memories")
+      .delete()
+      .eq("key", key);
+    if (error) {
+      console.error("[CoreMemory] Failed to delete:", error.message);
+    }
+  } catch (err) {
+    console.error("[CoreMemory] Unexpected error deleting:", err);
+  }
+}
+
+/**
  * Build the core memory block for the system prompt.
  * Groups entries by prefix for cleaner display.
  */

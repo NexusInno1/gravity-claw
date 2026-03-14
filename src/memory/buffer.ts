@@ -7,7 +7,7 @@
  */
 
 import { getSupabase } from "../lib/supabase.js";
-import { setCoreMemory } from "./core.js";
+import { setCoreMemory, deleteCoreMemory } from "./core.js";
 import { getAI, withRetry } from "../lib/gemini.js";
 import { ENV } from "../config.js";
 
@@ -209,8 +209,8 @@ export async function clearChatHistory(chatId: string): Promise<void> {
       console.log(`[Buffer] Cleared all messages for chat ${chatId}.`);
     }
 
-    // Also clear the rolling summary from core memory
-    await setCoreMemory(`rolling_summary_${chatId}`, "");
+    // Also delete the rolling summary from core memory
+    await deleteCoreMemory(`rolling_summary_${chatId}`);
   } catch (err) {
     console.error("[Buffer] Clear history error:", err);
   }

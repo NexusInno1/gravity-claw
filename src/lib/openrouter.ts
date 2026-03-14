@@ -75,11 +75,26 @@ function convertContents(
     // Check for function responses (tool results)
     const functionResponseParts = parts.filter((p) => p.functionResponse);
     if (functionResponseParts.length > 0) {
-      for (const frp of functionResponseParts) {
-        const fr = frp.functionResponse!;
+      for (let fri = 0; fri < functionResponseParts.length; fri++) {
+        const fr = functionResponseParts[fri].functionResponse!;
+        // Match the tool_call_id generated during assistant message conversion
+        // by finding the corresponding tool_call in previous assistant messages
+        let toolCallId = `call_${fr.name}_0`;
+        for (let mi = messages.length - 1; mi >= 0; mi--) {
+          const prev = messages[mi];
+          if (prev.role === "assistant" && "tool_calls" in prev && prev.tool_calls) {
+            const match = prev.tool_calls.find(
+              (tc) => tc.type === "function" && tc.function.name === fr.name,
+            );
+            if (match) {
+              toolCallId = match.id;
+              break;
+            }
+          }
+        }
         messages.push({
           role: "tool",
-          tool_call_id: `call_${fr.name}_0`,
+          tool_call_id: toolCallId,
           content: JSON.stringify(fr.response || {}),
         });
       }

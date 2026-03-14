@@ -24,6 +24,7 @@ const lastRunDates = new Map<string, string>();
 
 // Module-level reference to active jobs (set during startHeartbeat)
 let activeJobs: HeartbeatJob[] = [];
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Get a formatted status string of all heartbeat jobs.
@@ -116,7 +117,7 @@ export function startHeartbeat(
   }
 
   // Check every 60 seconds
-  setInterval(() => {
+  heartbeatTimer = setInterval(() => {
     const { hour, minute, dateKey } = getISTNow();
 
     for (const job of jobs) {
@@ -144,4 +145,15 @@ export function startHeartbeat(
       if (date !== today) lastRunDates.delete(key);
     }
   }, 60_000); // Every 60 seconds
+}
+
+/**
+ * Stop the heartbeat scheduler.
+ */
+export function stopHeartbeat(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+    console.log("[Heartbeat] Scheduler stopped.");
+  }
 }

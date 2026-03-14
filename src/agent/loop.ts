@@ -231,23 +231,22 @@ export async function runAgentLoop(
   userMessage: string,
   chatId: string,
 ): Promise<string> {
-  // Save user message to buffer (Tier 2)
+  // Load Tier 2 recent messages as conversation history (before saving current)
+  const recentMessages = await getRecentMessages(chatId);
+
+  // Save user message to buffer (Tier 2) — after loading to avoid duplication
   await saveMessage(chatId, "user", userMessage);
 
   // Build system instruction with all memory tiers
   const systemInstruction = await buildSystemInstruction(chatId, userMessage);
 
-  // Load Tier 2 recent messages as conversation history
-  const recentMessages = await getRecentMessages(chatId);
   const contents: Content[] = recentMessages.map((msg) => ({
     role: msg.role as "user" | "model",
     parts: [{ text: msg.content }],
   }));
 
-  // If no history loaded from DB, at minimum include the current user message
-  if (contents.length === 0) {
-    contents.push({ role: "user", parts: [{ text: userMessage }] });
-  }
+  // Append current user message (it wasn't in DB when we loaded)
+  contents.push({ role: "user", parts: [{ text: userMessage }] });
 
   const availableTools = getAllTools();
   let iterationCount = 0;

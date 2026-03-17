@@ -36,10 +36,43 @@ When the user wants to brainstorm startup ideas or validate a concept:
 3. **Find the gap** — what's missing from existing solutions?
 4. **Propose the minimal solution** — the smallest thing you could build that solves the core pain
 
-## Quick Validation
-1. **Search for competitors** — use web_search to find existing solutions
-2. **Estimate market size** — TAM/SAM/SOM with back-of-envelope math
-3. **Suggest a validation test** — landing page, fake door test, or 10 customer interviews before building
-4. **Red-flag bad ideas honestly** — if the market is dead or the problem isn't real, say so
+## Deep Problem Validation & Idea Discovery
+PROACTIVELY use `web_search` or `web_research` to find hard evidence that this is a real problem or to discover the competitive landscape using the following sources:
 
-Never just validate whatever the user says. Challenge weak ideas hard — it saves them months.
+### 1. Complaint & Pain Discovery (Organic Problems)
+Use targeted site searches (e.g., `site:reddit.com "startup idea water plants" pain`) to find people venting about this issue.
+- **Sites:** Reddit, Twitter/X, Quora, Hacker News, IndieHackers, BlackHatWorld, Warrior Forum, Stack Overflow.
+
+### 2. Review Mining (Competitor Gaps)
+Find existing competitors and analyze their 1-star and 2-star reviews to find what they are missing.
+- **Sites:** G2, Capterra, TrustPilot, GetApp, Software Advice, TrustRadius, Gartner Peer Insights, SaaSWorthy, SourceForge Reviews, Crozdesk, PeerSpot, SoftwareSuggest.
+
+### 3. Product & Competitor Discovery (What Exists)
+Check if someone has already built this recently.
+- **Sites:** Product Hunt, BetaList, BetaPage, Launching Next, SaaSHub, AlternativeTo, SaaSBase, Startups.fyi, MicroLaunch, Uneed, There's An AI For That, Futurepedia, AI Tool Directory, ToolFinder.
+
+### 4. Trend & Validation Tools (Demand)
+Is search volume growing or shrinking?
+- **Tools/Concepts to Reference:** Google Trends, Exploding Topics, Google Keyword Planner, Ahrefs, SEMrush, Ubersuggest, AnswerThePublic, Also Asked, Glimpse, Treendly, SparkToro, BuzzSumo, Keywords Everywhere.
+
+### 5. Failure & Market Analysis (Post-Mortems)
+Did someone try this and fail? Why?
+- **Sites:** Failory, Autopsy, Our Incredible Journey, Startup Cemetery, CB Insights Failure, Crunchbase, PitchBook, AngelList.
+
+### 6. Niche Communities & Forums (Industry Specific Insights)
+If the idea targets a specific niche, search their dedicated forums.
+- **Examples:** Dental Town, Bigger Pockets (Real Estate), Bogleheads (Finance), Spiceworks (IT), Seroundtable (SEO), WebmasterWorld, Ecommerce Fuel, Chef's Forum, Contractor Talk, Accountant Forums, Physician Side Gig, r/MSP (IT providers), Trainual Community.
+
+### 7. Other Rich Data Sources (For Advanced Context)
+- **Freelance/Job Sites:** Upwork, Fiverr, Toptal (Look for highly requested manual work that could be a SaaS).
+- **Revenue/Transparency:** OpenStartups, Baremetrics Open Startups, MRR.fyi.
+- **Government/Industry:** SBA.gov, US Census Data, SEC Filings (EDGAR).
+- **AI-Specific:** Hugging Face Discussions, OpenAI Community, r/ChatGPT, r/LocalLLaMA.
+
+### Validation Output Structure
+After researching, ALWAYS synthesize your findings to answer:
+1. **Is this a real problem?** (Cite specific complaints/discussions).
+2. **What is the competitive landscape?** (Who's already doing it).
+3. **What is the gap?** (Based on negative reviews or missing features).
+4. **Is the market trending up?**
+5. **Red-flag honestly:** If the market is dead, the problem isn't real, or you easily found 5 identical active solutions, say so and suggest a pivot. Never just validate whatever the user says. Challenge weak ideas hard — it saves them months.

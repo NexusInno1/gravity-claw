@@ -12,8 +12,10 @@
  *   8. Current user message
  *
  * Tool Registry:
- *   Built-in tools are registered at startup.
+ *   Built-in tools are registered centrally in tools/registry.ts.
  *   MCP tools are merged dynamically on each iteration.
+ *   An optional `allowedToolNames` filter restricts which tools
+ *   are visible/executable (used by sub-agents).
  */
 
 import { Content, Part, Tool } from "@google/genai";
@@ -22,7 +24,16 @@ import { ENV } from "../config.js";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-// Built-in tools
+// Centralized tool registry
+import {
+  registerTool,
+  getAllToolEntries,
+  getFilteredToolEntries,
+  getToolDefinitions,
+  getToolExecutor,
+} from "../tools/registry.js";
+
+// Built-in tool definitions + executors
 import {
   getCurrentTimeDefinition,
   executeGetCurrentTime,
@@ -77,57 +88,49 @@ try {
 const skills = loadSkills(resolve(process.cwd(), "skills"));
 const skillsPrompt = buildSkillsPrompt(skills);
 
-// ─── Tool Registry ───────────────────────────────────────────────
+// ─── Register Built-in Tools ─────────────────────────────────────
 
-/** A registered tool executor function */
-type ToolExecutor = (
-  args: Record<string, unknown>,
-  chatId: string,
-) => Promise<string>;
-
-/** Map of tool name → executor function */
-const toolRegistry = new Map<string, ToolExecutor>();
-
-// Register built-in tools
-toolRegistry.set("get_current_time", async () => executeGetCurrentTime());
-toolRegistry.set(
-  "remember_fact",
-  async (args) =>
+registerTool({
+  name: "get_current_time",
+  definition: getCurrentTimeDefinition,
+  executor: async () => executeGetCurrentTime(),
+});
+registerTool({
+  name: "remember_fact",
+  definition: rememberFactDefinition,
+  executor: async (args) =>
     executeRememberFact(args as { key: string; value: string }),
-);
-toolRegistry.set(
-  "web_search",
-  async (args) => executeWebSearch((args as { query: string }).query),
-);
-toolRegistry.set(
-  "web_research",
-  async (args) => executeWebResearch((args as { query: string }).query),
-);
-toolRegistry.set(
-  "read_url",
-  async (args) => executeReadUrl((args as { url: string }).url),
-);
-toolRegistry.set("set_reminder", async (args, chatId) =>
-  executeSetReminder(args as { message: string; minutes: number }, chatId),
-);
-toolRegistry.set(
-  "browse_page",
-  async (args) =>
+});
+registerTool({
+  name: "web_search",
+  definition: webSearchDefinition,
+  executor: async (args) => executeWebSearch((args as { query: string }).query),
+});
+registerTool({
+  name: "web_research",
+  definition: webResearchDefinition,
+  executor: async (args) =>
+    executeWebResearch((args as { query: string }).query),
+});
+registerTool({
+  name: "read_url",
+  definition: readUrlDefinition,
+  executor: async (args) => executeReadUrl((args as { url: string }).url),
+});
+registerTool({
+  name: "set_reminder",
+  definition: setReminderDefinition,
+  executor: async (args, chatId) =>
+    executeSetReminder(args as { message: string; minutes: number }, chatId),
+});
+registerTool({
+  name: "browse_page",
+  definition: browsePageDefinition,
+  executor: async (args) =>
     executeBrowsePage(
       args as { url: string; wait_for?: string; extract_selector?: string },
     ),
-);
-
-/** Built-in tool definitions (static) */
-const builtinToolDefs: Tool[] = [
-  getCurrentTimeDefinition,
-  rememberFactDefinition,
-  webSearchDefinition,
-  webResearchDefinition,
-  readUrlDefinition,
-  setReminderDefinition,
-  browsePageDefinition,
-];
+});
 
 // Tool usage rules (appended after soul + skills)
 const toolRules =
@@ -190,14 +193,22 @@ async function buildSystemInstruction(
 
 /**
  * Execute a tool by name, checking the registry first, then MCP.
+ * If `permittedNames` is provided, the tool must be in that set.
  */
 async function executeTool(
   name: string,
   args: Record<string, unknown>,
   chatId: string,
+  permittedNames?: Set<string>,
 ): Promise<string> {
+  // Runtime permission guard
+  if (permittedNames && !permittedNames.has(name)) {
+    console.warn(`[Agent] Blocked tool call "${name}" — not permitted.`);
+    return `Error: Tool "${name}" is not permitted in this context.`;
+  }
+
   // Check built-in registry
-  const executor = toolRegistry.get(name);
+  const executor = getToolExecutor(name);
   if (executor) {
     return executor(args, chatId);
   }
@@ -213,24 +224,78 @@ async function executeTool(
 // ─── Agent Loop ──────────────────────────────────────────────────
 
 /**
- * Get all available tool definitions (built-in + MCP).
+ * Get available tool definitions, filtered for permitted tools.
+ *
+ * @param allowedToolNames  Optional list of tool names to include.
+ *                          If omitted, all tools are returned.
+ * @param deniedToolNames   Optional list of tool names to exclude.
+ *                          Ignored if allowedToolNames is set.
  */
-function getAllTools(): Tool[] {
+function getAvailableTools(
+  allowedToolNames?: string[],
+  deniedToolNames?: string[],
+): { definitions: Tool[]; permittedNames: Set<string> } {
+  // Filter built-in tools
+  const filteredEntries = getFilteredToolEntries(
+    allowedToolNames,
+    deniedToolNames,
+  );
+  const builtinDefs = getToolDefinitions(filteredEntries);
+
+  // Collect permitted built-in names
+  const permittedNames = new Set(filteredEntries.map((e) => e.name));
+
+  // MCP tools: apply the same allow/deny logic
   const mcpTools = mcpManager.getAllMcpTools();
-  return [...builtinToolDefs, ...mcpTools];
+  const filteredMcpTools: Tool[] = [];
+
+  for (const mcpTool of mcpTools) {
+    if (!mcpTool.functionDeclarations) continue;
+
+    const filteredDecls = mcpTool.functionDeclarations.filter((decl) => {
+      const name = decl.name!;
+      if (allowedToolNames && allowedToolNames.length > 0) {
+        return allowedToolNames.includes(name);
+      }
+      if (deniedToolNames && deniedToolNames.length > 0) {
+        return !deniedToolNames.includes(name);
+      }
+      return true;
+    });
+
+    if (filteredDecls.length > 0) {
+      filteredMcpTools.push({ functionDeclarations: filteredDecls });
+      for (const decl of filteredDecls) {
+        permittedNames.add(decl.name!);
+      }
+    }
+  }
+
+  return {
+    definitions: [...builtinDefs, ...filteredMcpTools],
+    permittedNames,
+  };
 }
 
 /**
  * The core agentic loop with memory integration.
  *
- * @param userMessage The message text from the user
- * @param chatId The chat ID for memory scoping
+ * @param userMessage      The message text from the user
+ * @param chatId           The chat ID for memory scoping
+ * @param allowedToolNames Optional allowlist of tool names (sub-agent restriction)
+ * @param deniedToolNames  Optional denylist of tool names (sub-agent restriction)
+ * @param maxIterations    Optional override for max loop iterations
  * @returns The final text response from the agent
  */
 export async function runAgentLoop(
   userMessage: string,
   chatId: string,
+  allowedToolNames?: string[],
+  deniedToolNames?: string[],
+  maxIterations?: number,
 ): Promise<string> {
+  const iterLimit = maxIterations ?? MAX_ITERATIONS;
+
   // Load Tier 2 recent messages as conversation history (before saving current)
   const recentMessages = await getRecentMessages(chatId);
 
@@ -248,12 +313,15 @@ export async function runAgentLoop(
   // Append current user message (it wasn't in DB when we loaded)
   contents.push({ role: "user", parts: [{ text: userMessage }] });
 
-  const availableTools = getAllTools();
+  const { definitions: availableTools, permittedNames } = getAvailableTools(
+    allowedToolNames,
+    deniedToolNames,
+  );
   let iterationCount = 0;
 
-  while (iterationCount < MAX_ITERATIONS) {
+  while (iterationCount < iterLimit) {
     iterationCount++;
-    console.log(`[Agent] Iteration ${iterationCount}/${MAX_ITERATIONS}`);
+    console.log(`[Agent] Iteration ${iterationCount}/${iterLimit}`);
 
     // Ask LLM with full context (Gemini primary, OpenRouter fallback)
     const response = await withRetry(
@@ -309,6 +377,7 @@ export async function runAgentLoop(
             call.name!,
             (call.args as Record<string, unknown>) || {},
             chatId,
+            permittedNames,
           );
         } catch (error) {
           toolOutputText = `Error calling tool: ${String(error)}`;
@@ -347,7 +416,7 @@ export async function runAgentLoop(
 
   return (
     "Error: Agent reached maximum iterations (" +
-    MAX_ITERATIONS +
+    iterLimit +
     ") without answering."
   );
 }
@@ -387,7 +456,8 @@ export async function runAgentLoopWithImage(
     },
   ];
 
-  const availableTools = getAllTools();
+  // Vision loop always gets full tool access
+  const { definitions: availableTools, permittedNames } = getAvailableTools();
   let iterationCount = 0;
 
   while (iterationCount < MAX_ITERATIONS) {
@@ -440,6 +510,7 @@ export async function runAgentLoopWithImage(
             call.name!,
             (call.args as Record<string, unknown>) || {},
             chatId,
+            permittedNames,
           );
         } catch (error) {
           toolOutputText = `Error calling tool: ${String(error)}`;

@@ -1,10 +1,11 @@
 import { TelegramChannel } from "./channels/telegram.js";
+import { DiscordChannel } from "./channels/discord.js";
 import { ENV } from "./config.js";
 import { loadCoreMemories } from "./memory/core.js";
 import { isSupabaseReady } from "./lib/supabase.js";
 import { startHeartbeat, stopHeartbeat } from "./heartbeat/scheduler.js";
 import { heartbeatJobs } from "./heartbeat/jobs.js";
-import type { IncomingMessage } from "./channels/types.js";
+import type { IncomingMessage, Channel } from "./channels/types.js";
 import { runAgentLoop, runAgentLoopWithImage } from "./agent/loop.js";
 import { mcpManager } from "./mcp/mcp-manager.js";
 
@@ -28,11 +29,8 @@ async function start() {
   // Initialize MCP servers (loads mcp.json)
   await mcpManager.init();
 
-  // Create the Telegram channel adapter
-  const channel = new TelegramChannel();
-
-  // Wire the agent loop as the message handler
-  channel.onMessage(async (msg: IncomingMessage): Promise<string> => {
+  // Shared message handler for all channels
+  const messageHandler = async (msg: IncomingMessage): Promise<string> => {
     if (msg.imageBase64 && msg.imageMimeType) {
       return runAgentLoopWithImage(
         msg.text || "What's in this image? Describe and analyze it.",
@@ -42,28 +40,53 @@ async function start() {
       );
     }
     return runAgentLoop(msg.text || "", msg.chatId);
-  });
+  };
 
-  // Start the channel
-  await channel.start();
+  // Track active channels for shutdown
+  const activeChannels: Channel[] = [];
 
-  // Start heartbeat scheduler after channel is connected
-  if (ENV.HEARTBEAT_CHAT_ID) {
-    startHeartbeat(channel.getBot(), ENV.HEARTBEAT_CHAT_ID, heartbeatJobs);
-  } else {
-    console.warn(
-      "[Heartbeat] No HEARTBEAT_CHAT_ID set — scheduler disabled.",
-    );
+  // ── Telegram Channel ───────────────────────────────────────────
+  if (ENV.TELEGRAM_BOT_TOKEN) {
+    const telegram = new TelegramChannel();
+    telegram.onMessage(messageHandler);
+    await telegram.start();
+    activeChannels.push(telegram);
+
+    // Start heartbeat scheduler after Telegram is connected
+    if (ENV.HEARTBEAT_CHAT_ID) {
+      startHeartbeat(telegram.getBot(), ENV.HEARTBEAT_CHAT_ID, heartbeatJobs);
+    } else {
+      console.warn(
+        "[Heartbeat] No HEARTBEAT_CHAT_ID set — scheduler disabled.",
+      );
+    }
   }
 
+  // ── Discord Channel ────────────────────────────────────────────
+  if (ENV.DISCORD_BOT_TOKEN) {
+    const discord = new DiscordChannel();
+    discord.onMessage(messageHandler);
+    await discord.start();
+    activeChannels.push(discord);
+  }
+
+  if (activeChannels.length === 0) {
+    throw new Error("No channels started — check your .env for bot tokens.");
+  }
+
+  console.log(
+    `[Channels] Active: ${activeChannels.map((c) => c.name).join(", ")}`,
+  );
   console.log("==========================================");
 
   // Graceful shutdown handlers
   const shutdown = () => {
     console.log("🔴 Gravity Claw shutdown signal received — cleaning up...");
     stopHeartbeat();
-    mcpManager.shutdown().catch(() => {});
-    channel.stop();
+    mcpManager.shutdown().catch(() => { });
+    for (const channel of activeChannels) {
+      channel.stop();
+    }
     process.exit(0);
   };
 

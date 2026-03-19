@@ -7,7 +7,7 @@
  */
 
 import { getSupabase } from "../lib/supabase.js";
-import { setCoreMemory, deleteCoreMemory } from "./core.js";
+import { setCoreMemory, deleteCoreMemory, getCoreMemory } from "./core.js";
 import { getAI, withRetry } from "../lib/gemini.js";
 import { ENV } from "../config.js";
 
@@ -213,5 +213,150 @@ export async function clearChatHistory(chatId: string): Promise<void> {
     await deleteCoreMemory(`rolling_summary_${chatId}`);
   } catch (err) {
     console.error("[Buffer] Clear history error:", err);
+  }
+}
+
+/**
+ * Get the total message count for a chat.
+ * Used by /status to display buffer size.
+ */
+export async function getMessageCount(chatId: string): Promise<number> {
+  const sb = getSupabase();
+  if (!sb) return 0;
+
+  try {
+    const { count, error } = await sb
+      .from("messages")
+      .select("id", { count: "exact", head: true })
+      .eq("chat_id", chatId);
+
+    if (error) {
+      console.error("[Buffer] Failed to count messages:", error.message);
+      return 0;
+    }
+
+    return count || 0;
+  } catch (err) {
+    console.error("[Buffer] Message count error:", err);
+    return 0;
+  }
+}
+
+/**
+ * Compact all chat history into a rolling summary on demand.
+ * Unlike maybeCompact (which triggers automatically), this is user-invoked
+ * via the /compact command. Summarizes ALL messages, merges with any existing
+ * rolling summary, then clears the raw message buffer.
+ *
+ * @returns A status message describing what happened.
+ */
+export async function compactChatHistory(chatId: string): Promise<string> {
+  const sb = getSupabase();
+  if (!sb) return "⚠️ Database unavailable — cannot compact.";
+
+  try {
+    // Fetch all messages for this chat
+    const { data: allMessages, error: fetchError } = await sb
+      .from("messages")
+      .select("id, role, content")
+      .eq("chat_id", chatId)
+      .order("created_at", { ascending: true });
+
+    if (fetchError) {
+      console.error("[Buffer] Failed to fetch messages for compaction:", fetchError.message);
+      return "❌ Failed to fetch messages for compaction.";
+    }
+
+    if (!allMessages || allMessages.length === 0) {
+      return "ℹ️ No messages to compact.";
+    }
+
+    // Build transcript from all messages
+    const transcript = allMessages
+      .map((m) => `${m.role}: ${m.content}`)
+      .join("\n");
+
+    // Merge with any existing rolling summary
+    const existingSummary = getCoreMemory(`rolling_summary_${chatId}`);
+    const contextPrefix = existingSummary
+      ? `Previous summary:\n${existingSummary}\n\nNew messages:\n`
+      : "";
+
+    const compactionContents = [
+      {
+        role: "user" as const,
+        parts: [
+          {
+            text: `Summarize this conversation into a structured memory block. Use these sections (skip empty ones):
+
+## Decisions Made
+- ...
+
+## Active Projects / Tasks
+- ...
+
+## Action Items & Commitments
+- ...
+
+## Key Context
+- ...
+
+Do NOT include greetings, small talk, or irrelevant chatter. Be concise but preserve all important details.
+
+${contextPrefix}${transcript}`,
+          },
+        ],
+      },
+    ];
+
+    const response = await withRetry(
+      () =>
+        getAI().models.generateContent({
+          model: ENV.GEMINI_MODEL,
+          contents: compactionContents,
+          config: { temperature: 0.3 },
+        }),
+      {
+        contents: compactionContents,
+        systemInstruction: undefined,
+        tools: undefined,
+        temperature: 0.3,
+      },
+    );
+
+    const summary =
+      response.candidates?.[0]?.content?.parts
+        ?.filter((p) => p.text)
+        .map((p) => p.text)
+        .join("\n")
+        .trim() || "";
+
+    if (!summary) {
+      return "⚠️ Could not generate summary from messages.";
+    }
+
+    // Save the rolling summary to core memory
+    await setCoreMemory(`rolling_summary_${chatId}`, summary);
+
+    // Delete all raw messages from the buffer
+    const idsToDelete = allMessages.map((m) => m.id);
+    const { error: deleteError } = await sb
+      .from("messages")
+      .delete()
+      .in("id", idsToDelete);
+
+    if (deleteError) {
+      console.error("[Buffer] Failed to delete messages after compaction:", deleteError.message);
+      return `⚠️ Summary saved but failed to clear ${allMessages.length} messages.`;
+    }
+
+    console.log(
+      `[Buffer] Compacted ${allMessages.length} messages into rolling summary (manual).`,
+    );
+
+    return `✅ Compacted **${allMessages.length} messages** into a summary.\n\nThe conversation context has been preserved in condensed form. Future requests will use fewer tokens.`;
+  } catch (err) {
+    console.error("[Buffer] Manual compaction error:", err);
+    return "❌ Compaction failed. Check logs for details.";
   }
 }

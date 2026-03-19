@@ -72,6 +72,9 @@ import { loadSkills, buildSkillsPrompt } from "../skills/skills.js";
 // MCP system
 import { mcpManager } from "../mcp/mcp-manager.js";
 
+// Session stats tracking
+import { recordTokenUsage } from "../commands/session-stats.js";
+
 const MAX_ITERATIONS = 5;
 
 // ─── Soul + Skills (loaded once at startup) ──────────────────────
@@ -343,7 +346,16 @@ export async function runAgentLoop(
       },
     );
 
-    // Check if the model returned anything
+    // Track token usage from the response
+    const usage = (response as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } }).usageMetadata;
+    if (usage) {
+      recordTokenUsage(
+        chatId,
+        usage.promptTokenCount || 0,
+        usage.candidatesTokenCount || 0,
+        usage.totalTokenCount || 0,
+      );
+    }
     if (!response.candidates || response.candidates.length === 0) {
       return "Error: Empty response from model.";
     }
@@ -482,6 +494,17 @@ export async function runAgentLoopWithImage(
         temperature: 0.7,
       },
     );
+
+    // Track token usage from the response
+    const visionUsage = (response as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } }).usageMetadata;
+    if (visionUsage) {
+      recordTokenUsage(
+        chatId,
+        visionUsage.promptTokenCount || 0,
+        visionUsage.candidatesTokenCount || 0,
+        visionUsage.totalTokenCount || 0,
+      );
+    }
 
     if (!response.candidates || response.candidates.length === 0) {
       return "Error: Empty response from model.";

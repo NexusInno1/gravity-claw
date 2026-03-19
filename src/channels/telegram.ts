@@ -9,8 +9,12 @@
 import { Bot } from "grammy";
 import { ENV } from "../config.js";
 import { whitelistMiddleware } from "./whitelist.js";
-import { clearChatHistory } from "../memory/buffer.js";
+import { clearChatHistory, getMessageCount, compactChatHistory } from "../memory/buffer.js";
 import { initReminderCallback } from "../tools/set_reminder.js";
+import {
+  resetSessionStats,
+  formatSessionStatus,
+} from "../commands/session-stats.js";
 import {
   getHeartbeatStatus,
   updateHeartbeatTime,
@@ -115,6 +119,7 @@ export class TelegramChannel implements Channel {
 
       try {
         await clearChatHistory(chatId);
+        resetSessionStats(chatId);
         await this.sendReply(
           ctx.chat.id,
           "🔄 History cleared. Fresh session started.\n\nHow can I help you today?",
@@ -122,6 +127,67 @@ export class TelegramChannel implements Channel {
       } catch (error) {
         console.error("[Telegram] /start error:", error);
         await ctx.reply("System error while clearing history. Check logs.");
+      }
+    });
+
+    // /new or /reset — clear conversation history and reset session stats
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleReset = async (ctx: any) => {
+      const chatId = String(ctx.chat.id);
+      console.log(
+        `[Telegram] /reset command from ${ctx.from?.id} — clearing history.`,
+      );
+
+      await ctx.replyWithChatAction("typing");
+
+      try {
+        await clearChatHistory(chatId);
+        resetSessionStats(chatId);
+        await this.sendReply(
+          ctx.chat.id,
+          "🔄 History cleared and session reset.\n\nHow can I help you today?",
+        );
+      } catch (error) {
+        console.error("[Telegram] /reset error:", error);
+        await ctx.reply("System error while clearing history. Check logs.");
+      }
+    };
+
+    this.bot.command("new", handleReset);
+    this.bot.command("reset", handleReset);
+
+    // /status — display session token consumption and stats
+    this.bot.command("status", async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      console.log(`[Telegram] /status command from ${ctx.from?.id}`);
+
+      await ctx.replyWithChatAction("typing");
+
+      try {
+        const messageCount = await getMessageCount(chatId);
+        const statusText = formatSessionStatus(chatId, messageCount);
+        await this.sendReply(ctx.chat.id, statusText);
+      } catch (error) {
+        console.error("[Telegram] /status error:", error);
+        await ctx.reply("System error while fetching status. Check logs.");
+      }
+    });
+
+    // /compact — summarize conversation history to reduce tokens
+    this.bot.command("compact", async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      console.log(
+        `[Telegram] /compact command from ${ctx.from?.id} — compacting history.`,
+      );
+
+      await ctx.replyWithChatAction("typing");
+
+      try {
+        const result = await compactChatHistory(chatId);
+        await this.sendReply(ctx.chat.id, result);
+      } catch (error) {
+        console.error("[Telegram] /compact error:", error);
+        await ctx.reply("System error during compaction. Check logs.");
       }
     });
 
@@ -187,7 +253,7 @@ export class TelegramChannel implements Channel {
       // Start typing indicator loop
       await ctx.replyWithChatAction("typing");
       const typingInterval = setInterval(() => {
-        ctx.replyWithChatAction("typing").catch(() => {});
+        ctx.replyWithChatAction("typing").catch(() => { });
       }, 4000);
 
       try {
@@ -253,7 +319,7 @@ export class TelegramChannel implements Channel {
       // Start a typing indicator loop — pulses every 4s
       await ctx.replyWithChatAction("typing");
       const typingInterval = setInterval(() => {
-        ctx.replyWithChatAction("typing").catch(() => {});
+        ctx.replyWithChatAction("typing").catch(() => { });
       }, 4000);
 
       try {

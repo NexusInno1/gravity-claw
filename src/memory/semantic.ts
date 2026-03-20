@@ -10,30 +10,35 @@
  *   Types: 'fact' | 'event'
  *   Categories: 'personal' | 'project' | 'preference' | 'goal' | 'event' | 'general'
  *   Do NOT store: casual chat, jokes, small talk, temporary emotions
+ *
+ * Note: Embeddings always use the Gemini SDK directly (embedContent API).
+ *       Fact extraction uses the provider-agnostic router.
  */
 
 import { getSupabase } from "../lib/supabase.js";
-import { getAI, withRetry } from "../lib/gemini.js";
+import { GoogleGenAI } from "@google/genai";
+import { routedChat } from "../lib/router.js";
 import { ENV } from "../config.js";
 
 /**
  * Generate an embedding for a given text using Gemini.
  * Uses gemini-embedding-001 with 768 dimensions for pgvector compatibility.
+ *
+ * Note: Embeddings are Gemini-specific — OpenRouter doesn't support them.
+ * We use the Gemini SDK directly here, not the provider-agnostic router.
  */
 async function embed(text: string): Promise<number[] | null> {
   try {
-    const embeddingContents = text;
-    const result = await withRetry(
-      () =>
-        getAI().models.embedContent({
-          model: "gemini-embedding-001",
-          contents: embeddingContents,
-          config: {
-            outputDimensionality: 768,
-          },
-        }),
-      // No fallback for embeddings — OpenRouter doesn't support them
-    );
+    const keys = ENV.GEMINI_API_KEYS;
+    const ai = new GoogleGenAI({ apiKey: keys[0] });
+
+    const result = await ai.models.embedContent({
+      model: "gemini-embedding-001",
+      contents: text,
+      config: {
+        outputDimensionality: 768,
+      },
+    });
     return result.embeddings?.[0]?.values || null;
   } catch (err) {
     console.error("[Semantic] Embedding error:", err);
@@ -236,31 +241,13 @@ Format: [{"content": "...", "type": "fact|event", "importance": N, "category": "
 Return ONLY the JSON array, no other text.`;
 
   try {
-    const extractionContents = [
-      { role: "user" as const, parts: [{ text: prompt }] },
-    ];
+    const response = await routedChat({
+      model: ENV.GEMINI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2,
+    });
 
-    const response = await withRetry(
-      () =>
-        getAI().models.generateContent({
-          model: ENV.GEMINI_MODEL,
-          contents: extractionContents,
-          config: { temperature: 0.2 },
-        }),
-      {
-        contents: extractionContents,
-        systemInstruction: undefined,
-        tools: undefined,
-        temperature: 0.2,
-      },
-    );
-
-    const text =
-      response.candidates?.[0]?.content?.parts
-        ?.filter((p) => p.text)
-        .map((p) => p.text)
-        .join("")
-        .trim() || "[]";
+    const text = response.text?.trim() || "[]";
 
     // Clean markdown fencing if present
     const cleanJson = text

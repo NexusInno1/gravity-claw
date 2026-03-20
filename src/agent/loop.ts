@@ -1,5 +1,5 @@
 /**
- * Core Agent Loop — with 3-Tier Memory, Skills, and MCP Integration
+ * Core Agent Loop — Provider-Agnostic with 3-Tier Memory, Skills, and MCP
  *
  * Context Assembly Order:
  *   1. System rules (soul.md)
@@ -7,9 +7,13 @@
  *   3. Tool usage rules
  *   4. Tier 1 Core Memory
  *   5. Tier 2 Rolling Summary
- *   6. Tier 2 Recent Messages
- *   7. Tier 3 Top 3-5 Semantic Memories
- *   8. Current user message
+ *   6. Tier 3 Top 3-5 Semantic Memories
+ *   7. Current user message
+ *
+ * Provider Routing:
+ *   - Gemini models  → @google/genai SDK (with key rotation)
+ *   - OpenRouter models → OpenAI SDK (native, first-class)
+ *   - Automatic fallback: Gemini → OpenRouter on failure
  *
  * Tool Registry:
  *   Built-in tools are registered centrally in tools/registry.ts.
@@ -18,11 +22,22 @@
  *   are visible/executable (used by sub-agents).
  */
 
-import { Content, Part, Tool } from "@google/genai";
-import { getAI, withRetry } from "../lib/gemini.js";
-import { ENV } from "../config.js";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import type { Tool } from "@google/genai";
+
+// Provider-agnostic types + router
+import type {
+  LLMMessage,
+  LLMToolCall,
+  LLMToolResult,
+  LLMToolSchema,
+  LLMResponse,
+} from "../lib/llm.js";
+import { routedChat, getProviderName } from "../lib/router.js";
+import { geminiToolsToSchemas } from "../lib/tool-bridge.js";
+
+import { ENV } from "../config.js";
 
 // Centralized tool registry
 import {
@@ -57,6 +72,10 @@ import {
   browsePageDefinition,
   executeBrowsePage,
 } from "../tools/browse_page.js";
+import {
+  delegateDefinition,
+  executeDelegate,
+} from "../tools/delegate.js";
 
 // Memory tiers
 import { buildCoreMemoryPrompt, getCoreMemory } from "../memory/core.js";
@@ -137,6 +156,15 @@ registerTool({
       args as { url: string; wait_for?: string; extract_selector?: string },
     ),
 });
+registerTool({
+  name: "delegate",
+  definition: delegateDefinition,
+  executor: async (args, chatId) =>
+    executeDelegate(
+      args as { agent: string; task: string; context?: string },
+      chatId,
+    ),
+});
 
 // Tool usage rules (appended after soul + skills)
 const toolRules =
@@ -146,7 +174,11 @@ const toolRules =
   "Do NOT save casual conversation, jokes, small talk, or temporary emotions. " +
   "You CAN answer general knowledge questions (people, places, history, science, etc.) " +
   "directly from your training data — you do NOT need a tool for that. " +
-  "Only use tools when you need real-time or dynamic information.";
+  "Only use tools when you need real-time or dynamic information. " +
+  "Use the delegate tool when a task requires deep multi-step work: thorough research " +
+  "(use 'research' agent), code generation/review (use 'code' agent), content " +
+  "summarization (use 'summary' agent), creative writing (use 'creative' agent), " +
+  "or data analysis (use 'analyst' agent). For quick, simple questions — answer directly.";
 
 // ─── System Instruction Builder ──────────────────────────────────
 
@@ -230,7 +262,7 @@ async function executeTool(
 // ─── Agent Loop ──────────────────────────────────────────────────
 
 /**
- * Get available tool definitions, filtered for permitted tools.
+ * Get available tool schemas + permitted names, respecting allow/deny lists.
  *
  * @param allowedToolNames  Optional list of tool names to include.
  *                          If omitted, all tools are returned.
@@ -240,22 +272,25 @@ async function executeTool(
 function getAvailableTools(
   allowedToolNames?: string[],
   deniedToolNames?: string[],
-): { definitions: Tool[]; permittedNames: Set<string> } {
-  // Filter built-in tools
+): { schemas: LLMToolSchema[]; permittedNames: Set<string> } {
+  // Filter built-in tools (these are still stored as Gemini Tool objects)
   const filteredEntries = getFilteredToolEntries(
     allowedToolNames,
     deniedToolNames,
   );
-  const builtinDefs = getToolDefinitions(filteredEntries);
+  const builtinGeminiDefs = getToolDefinitions(filteredEntries);
+
+  // Convert Gemini Tool[] → LLMToolSchema[]
+  const builtinSchemas = geminiToolsToSchemas(builtinGeminiDefs);
 
   // Collect permitted built-in names
   const permittedNames = new Set(filteredEntries.map((e) => e.name));
 
-  // MCP tools: apply the same allow/deny logic
-  const mcpTools = mcpManager.getAllMcpTools();
-  const filteredMcpTools: Tool[] = [];
+  // MCP tools: apply the same allow/deny logic, then convert
+  const mcpGeminiTools = mcpManager.getAllMcpTools();
+  const mcpSchemas: LLMToolSchema[] = [];
 
-  for (const mcpTool of mcpTools) {
+  for (const mcpTool of mcpGeminiTools) {
     if (!mcpTool.functionDeclarations) continue;
 
     const filteredDecls = mcpTool.functionDeclarations.filter((decl) => {
@@ -269,16 +304,18 @@ function getAvailableTools(
       return true;
     });
 
-    if (filteredDecls.length > 0) {
-      filteredMcpTools.push({ functionDeclarations: filteredDecls });
-      for (const decl of filteredDecls) {
-        permittedNames.add(decl.name!);
-      }
+    for (const decl of filteredDecls) {
+      mcpSchemas.push({
+        name: decl.name!,
+        description: decl.description || "",
+        parameters: (decl.parameters as Record<string, unknown>) || {},
+      });
+      permittedNames.add(decl.name!);
     }
   }
 
   return {
-    definitions: [...builtinDefs, ...filteredMcpTools],
+    schemas: [...builtinSchemas, ...mcpSchemas],
     permittedNames,
   };
 }
@@ -311,15 +348,16 @@ export async function runAgentLoop(
   // Build system instruction with all memory tiers
   const systemInstruction = await buildSystemInstruction(chatId, userMessage);
 
-  const contents: Content[] = recentMessages.map((msg) => ({
-    role: msg.role as "user" | "model",
-    parts: [{ text: msg.content }],
+  // Build conversation as provider-agnostic LLMMessage[]
+  const messages: LLMMessage[] = recentMessages.map((msg) => ({
+    role: msg.role as "user" | "assistant",
+    content: msg.content,
   }));
 
   // Append current user message (it wasn't in DB when we loaded)
-  contents.push({ role: "user", parts: [{ text: userMessage }] });
+  messages.push({ role: "user", content: userMessage });
 
-  const { definitions: availableTools, permittedNames } = getAvailableTools(
+  const { schemas: availableTools, permittedNames } = getAvailableTools(
     allowedToolNames,
     deniedToolNames,
   );
@@ -327,75 +365,55 @@ export async function runAgentLoop(
 
   while (iterationCount < iterLimit) {
     iterationCount++;
-    console.log(`[Agent] Iteration ${iterationCount}/${iterLimit}`);
 
-    // Ask LLM with full context (Gemini primary, OpenRouter fallback)
     const activeModel = getEffectiveModel(chatId);
-    const llmStart = Date.now();
-    const response = await withRetry(
-      () =>
-        getAI().models.generateContent({
-          model: activeModel,
-          contents,
-          config: {
-            tools: availableTools,
-            systemInstruction,
-            temperature: 0.7,
-          },
-        }),
-      {
-        contents,
-        systemInstruction,
-        tools: availableTools,
-        temperature: 0.7,
-      },
+    const provider = getProviderName(activeModel);
+    console.log(
+      `[Agent] Iteration ${iterationCount}/${iterLimit} — ${activeModel} (${provider})`,
     );
+
+    // Ask LLM via the smart router (Gemini or OpenRouter, with fallback)
+    const llmStart = Date.now();
+    const response: LLMResponse = await routedChat({
+      model: activeModel,
+      systemInstruction,
+      messages,
+      tools: availableTools,
+      temperature: 0.7,
+    });
     const llmLatencyMs = Date.now() - llmStart;
 
-    // Track token usage, cost and latency from the response
-    const usage = (response as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } }).usageMetadata;
-    if (usage) {
+    // Track token usage (works for both providers now)
+    if (response.usage) {
       recordTokenUsage(
         chatId,
         activeModel,
-        usage.promptTokenCount || 0,
-        usage.candidatesTokenCount || 0,
-        usage.totalTokenCount || 0,
+        response.usage.promptTokens,
+        response.usage.completionTokens,
+        response.usage.totalTokens,
         llmLatencyMs,
       );
     }
-    if (!response.candidates || response.candidates.length === 0) {
-      return "Error: Empty response from model.";
-    }
 
-    const candidate = response.candidates[0];
-    if (!candidate.content || !candidate.content.parts) {
-      return "Error: Empty content from model.";
-    }
+    // Handle tool calls
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      // Append the model's response (with tool calls) to history
+      messages.push({
+        role: "assistant",
+        content: response.text,
+        toolCalls: response.toolCalls,
+      });
 
-    const messageParts = candidate.content.parts;
+      const toolResults: LLMToolResult[] = [];
 
-    // Append model's response to history
-    contents.push({
-      role: "model",
-      parts: messageParts,
-    });
-
-    // Look for tool calls
-    const toolCalls = messageParts.filter((part) => part.functionCall);
-
-    if (toolCalls.length > 0) {
-      const toolResultParts: Part[] = [];
-
-      for (const callPart of toolCalls) {
-        const call = callPart.functionCall!;
+      for (const call of response.toolCalls) {
         console.log(`[Agent] Tool requested: ${call.name}`);
 
         let toolOutputText = "";
         try {
           toolOutputText = await executeTool(
-            call.name!,
-            (call.args as Record<string, unknown>) || {},
+            call.name,
+            call.args,
             chatId,
             permittedNames,
           );
@@ -405,22 +423,21 @@ export async function runAgentLoop(
 
         console.log(`[Agent] Tool result: ${toolOutputText}`);
 
-        toolResultParts.push({
-          functionResponse: {
-            name: call.name,
-            response: { result: toolOutputText },
-          },
+        toolResults.push({
+          callId: call.id,
+          name: call.name,
+          content: toolOutputText,
         });
       }
 
-      contents.push({
+      // Append tool results to history
+      messages.push({
         role: "user",
-        parts: toolResultParts,
+        toolResults,
       });
     } else {
-      // Final text response
-      const texts = messageParts.filter((p) => p.text).map((p) => p.text);
-      const finalResponse = texts.join("\n").trim();
+      // Final text response — no tool calls
+      const finalResponse = response.text?.trim() || "";
 
       // Save assistant response to buffer (Tier 2)
       if (finalResponse) {
@@ -444,6 +461,10 @@ export async function runAgentLoop(
 /**
  * Agent loop variant that accepts an image for multimodal (vision) queries.
  *
+ * Note: Currently images are only natively supported through Gemini's
+ * inline data format. For OpenRouter vision models, this would need
+ * base64 → URL conversion. For now, this always uses Gemini.
+ *
  * @param userMessage Text accompanying the image (or a default prompt)
  * @param chatId The chat ID
  * @param imageBase64 Base64-encoded image data
@@ -460,8 +481,23 @@ export async function runAgentLoopWithImage(
 
   const systemInstruction = await buildSystemInstruction(chatId, userMessage);
 
-  // Build multimodal content with inline image data
-  const contents: Content[] = [
+  // For vision, we need to use the Gemini SDK directly since it supports
+  // inline base64 image data. The provider-agnostic layer doesn't abstract
+  // multimodal content yet — this is a Gemini-specific path.
+  const { GoogleGenAI } = await import("@google/genai");
+
+  // We still use the tool pipeline through the agnostic layer
+  const { schemas: availableTools, permittedNames } = getAvailableTools();
+  let iterationCount = 0;
+
+  // Build Gemini-native content with inline image
+  const activeVisionModel = getEffectiveModel(chatId);
+
+  const geminiKeys = ENV.GEMINI_API_KEYS;
+  const ai = new GoogleGenAI({ apiKey: geminiKeys[0] });
+
+  // Use generic array to avoid type issues with mixed role literals
+  const geminiContents: Array<{ role: string; parts: any[] }> = [
     {
       role: "user",
       parts: [
@@ -476,38 +512,40 @@ export async function runAgentLoopWithImage(
     },
   ];
 
-  // Vision loop always gets full tool access
-  const { definitions: availableTools, permittedNames } = getAvailableTools();
-  let iterationCount = 0;
+  // Get Gemini-format tool definitions for vision calls
+  const filteredEntries = getFilteredToolEntries();
+  const builtinGeminiDefs = getToolDefinitions(filteredEntries);
+  const mcpGeminiTools = mcpManager.getAllMcpTools();
+  const allGeminiTools: Tool[] = [...builtinGeminiDefs, ...mcpGeminiTools];
 
   while (iterationCount < MAX_ITERATIONS) {
     iterationCount++;
-    console.log(`[Agent/Vision] Iteration ${iterationCount}/${MAX_ITERATIONS}`);
+    console.log(
+      `[Agent/Vision] Iteration ${iterationCount}/${MAX_ITERATIONS}`,
+    );
 
-    const activeVisionModel = getEffectiveModel(chatId);
     const visionStart = Date.now();
-    const response = await withRetry(
-      () =>
-        getAI().models.generateContent({
-          model: activeVisionModel,
-          contents,
-          config: {
-            tools: availableTools,
-            systemInstruction,
-            temperature: 0.7,
-          },
-        }),
-      {
-        contents,
+    const response = await ai.models.generateContent({
+      model: activeVisionModel,
+      contents: geminiContents,
+      config: {
+        tools: allGeminiTools.length > 0 ? allGeminiTools : undefined,
         systemInstruction,
-        tools: availableTools,
         temperature: 0.7,
       },
-    );
+    });
     const visionLatencyMs = Date.now() - visionStart;
 
-    // Track token usage, cost and latency from the response
-    const visionUsage = (response as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } }).usageMetadata;
+    // Track token usage
+    const visionUsage = (
+      response as {
+        usageMetadata?: {
+          promptTokenCount?: number;
+          candidatesTokenCount?: number;
+          totalTokenCount?: number;
+        };
+      }
+    ).usageMetadata;
     if (visionUsage) {
       recordTokenUsage(
         chatId,
@@ -529,12 +567,12 @@ export async function runAgentLoopWithImage(
     }
 
     const messageParts = candidate.content.parts;
-    contents.push({ role: "model", parts: messageParts });
+    geminiContents.push({ role: "model", parts: messageParts as any[] });
 
-    const toolCalls = messageParts.filter((part) => part.functionCall);
+    const toolCalls = messageParts.filter((part: any) => part.functionCall);
 
     if (toolCalls.length > 0) {
-      const toolResultParts: Part[] = [];
+      const toolResultParts: any[] = [];
 
       for (const callPart of toolCalls) {
         const call = callPart.functionCall!;
@@ -560,9 +598,11 @@ export async function runAgentLoopWithImage(
         });
       }
 
-      contents.push({ role: "user", parts: toolResultParts });
+      geminiContents.push({ role: "user", parts: toolResultParts });
     } else {
-      const texts = messageParts.filter((p) => p.text).map((p) => p.text);
+      const texts = messageParts
+        .filter((p: any) => p.text)
+        .map((p: any) => p.text);
       const finalResponse = texts.join("\n").trim();
 
       if (finalResponse) {
@@ -580,3 +620,4 @@ export async function runAgentLoopWithImage(
     ") without answering."
   );
 }
+

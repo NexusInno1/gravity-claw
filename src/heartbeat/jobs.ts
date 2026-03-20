@@ -6,7 +6,7 @@
  */
 
 import { Bot } from "grammy";
-import { getAI, withRetry } from "../lib/gemini.js";
+import { routedChat } from "../lib/router.js";
 import { executeWebSearch } from "../tools/web_search.js";
 import { executeSerperSearch } from "../tools/serper_search.js";
 import { ENV } from "../config.js";
@@ -34,7 +34,7 @@ async function morningCheckin(bot: Bot, chatId: string): Promise<void> {
       : executeWebSearch;
     newsContext = await searchFn(
       "top global news headlines today " +
-        new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
+      new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
     );
   } catch (err) {
     console.error("[Heartbeat] News fetch failed:", err);
@@ -45,7 +45,7 @@ async function morningCheckin(bot: Bot, chatId: string): Promise<void> {
   const coreMemory = buildCoreMemoryPrompt();
   const previousGoal = getCoreMemory("last_daily_goal");
 
-  // 3. Generate morning message via Gemini
+  // 3. Generate morning message via LLM (provider-agnostic)
   const prompt = `You are Gravity Claw, a sharp personal AI assistant. Generate a concise morning check-in message for your user.
 
 ${coreMemory ? `## What you know about the user:\n${coreMemory}\n` : ""}
@@ -63,31 +63,14 @@ ${newsContext}
 Keep it SHORT and punchy. No fluff, no filler. Total message should be under 300 words.`;
 
   try {
-    const heartbeatContents = [
-      { role: "user" as const, parts: [{ text: prompt }] },
-    ];
-
-    const response = await withRetry(
-      () =>
-        getAI().models.generateContent({
-          model: ENV.GEMINI_MODEL,
-          contents: heartbeatContents,
-          config: { temperature: 0.7 },
-        }),
-      {
-        contents: heartbeatContents,
-        systemInstruction: undefined,
-        tools: undefined,
-        temperature: 0.7,
-      },
-    );
+    const response = await routedChat({
+      model: ENV.GEMINI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+    });
 
     const message =
-      response.candidates?.[0]?.content?.parts
-        ?.filter((p) => p.text)
-        .map((p) => p.text)
-        .join("\n")
-        .trim() || "Good morning! What's your biggest goal today?";
+      response.text?.trim() || "Good morning! What's your biggest goal today?";
 
     await bot.api.sendMessage(chatId, message);
     // Save to conversation buffer so bot has context when user replies

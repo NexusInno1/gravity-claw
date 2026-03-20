@@ -19,7 +19,7 @@
 // Prices in USD per 1 000 000 tokens (as of March 2025).
 // Prompt / Completion prices listed separately.
 //
-// Source: https://ai.google.dev/pricing
+// Sources: https://ai.google.dev/pricing, https://openrouter.ai/models
 
 interface ModelPricing {
     /** USD per 1M prompt tokens */
@@ -29,22 +29,40 @@ interface ModelPricing {
 }
 
 const PRICING: Record<string, ModelPricing> = {
-    // Gemini 2.5
+    // ── Gemini ────────────────────────────────────────────────────
     "gemini-2.5-pro": { promptPer1M: 1.25, completionPer1M: 10.00 },
     "gemini-2.5-flash": { promptPer1M: 0.075, completionPer1M: 0.30 },
-    // Gemini 2.0
     "gemini-2.0-flash": { promptPer1M: 0.075, completionPer1M: 0.30 },
     "gemini-2.0-flash-lite": { promptPer1M: 0.075, completionPer1M: 0.30 },
-    // Gemini 1.5
     "gemini-1.5-pro": { promptPer1M: 1.25, completionPer1M: 5.00 },
     "gemini-1.5-flash": { promptPer1M: 0.075, completionPer1M: 0.30 },
     "gemini-1.5-flash-8b": { promptPer1M: 0.0375, completionPer1M: 0.15 },
+
+    // ── OpenRouter Free Tier (cost = $0) ──────────────────────────
+    "mistralai/mistral-small-3.1-24b-instruct:free": { promptPer1M: 0, completionPer1M: 0 },
+    "meta-llama/llama-4-maverick:free": { promptPer1M: 0, completionPer1M: 0 },
+    "meta-llama/llama-4-scout:free": { promptPer1M: 0, completionPer1M: 0 },
+    "deepseek/deepseek-chat-v3-0324:free": { promptPer1M: 0, completionPer1M: 0 },
+    "deepseek/deepseek-r1-0528:free": { promptPer1M: 0, completionPer1M: 0 },
+    "qwen/qwen3-235b-a22b:free": { promptPer1M: 0, completionPer1M: 0 },
+    "microsoft/phi-4-reasoning-plus:free": { promptPer1M: 0, completionPer1M: 0 },
+
+    // ── OpenRouter Paid (commonly used) ───────────────────────────
+    "anthropic/claude-3.5-sonnet": { promptPer1M: 3.00, completionPer1M: 15.00 },
+    "anthropic/claude-3-haiku": { promptPer1M: 0.25, completionPer1M: 1.25 },
+    "openai/gpt-4o": { promptPer1M: 2.50, completionPer1M: 10.00 },
+    "openai/gpt-4o-mini": { promptPer1M: 0.15, completionPer1M: 0.60 },
 };
 
 /** Fallback pricing for unknown models. */
 const DEFAULT_PRICING: ModelPricing = { promptPer1M: 0.075, completionPer1M: 0.30 };
 
+/** Free-tier models via OpenRouter have ":free" suffix. */
+const FREE_PRICING: ModelPricing = { promptPer1M: 0, completionPer1M: 0 };
+
 function getPricing(model: string): ModelPricing {
+    // Free-tier OpenRouter models
+    if (model.endsWith(":free")) return FREE_PRICING;
     // Exact match
     if (PRICING[model]) return PRICING[model];
     // Prefix match (handles versioned suffixes like -preview, -exp, etc.)
@@ -180,6 +198,40 @@ export function recordTokenUsage(
         `[Usage] model=${model} prompt=${promptTokens} compl=${completionTokens}` +
         ` total=${totalTokens} cost=$${costUsd.toFixed(6)} latency=${latencyMs}ms`,
     );
+
+    // Persist to Supabase for Mission Control dashboard (fire-and-forget)
+    persistUsageLog(chatId, record).catch((err) =>
+        console.warn("[Usage] Failed to persist usage log:", err),
+    );
+}
+
+/**
+ * Write a usage record to Supabase so Mission Control can display real cost data.
+ * This is fire-and-forget — never blocks the agent response.
+ */
+async function persistUsageLog(chatId: string, record: CallRecord): Promise<void> {
+    // Dynamic import to avoid circular dependencies at module load time
+    const { getSupabase } = await import("../lib/supabase.js");
+    const sb = getSupabase();
+    if (!sb) return;
+
+    const { error } = await sb.from("usage_logs").insert({
+        chat_id: chatId,
+        model: record.model,
+        prompt_tokens: record.promptTokens,
+        completion_tokens: record.completionTokens,
+        total_tokens: record.totalTokens,
+        estimated_cost_usd: record.estimatedCostUsd,
+        latency_ms: record.latencyMs,
+        created_at: record.timestamp,
+    });
+
+    if (error) {
+        // Table might not exist yet — that's fine, just log once
+        if (!error.message?.includes("usage_logs")) {
+            console.warn("[Usage] Supabase insert error:", error.message);
+        }
+    }
 }
 
 /**

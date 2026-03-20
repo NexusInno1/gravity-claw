@@ -1,10 +1,12 @@
 /**
- * OpenRouter Fallback Provider
+ * OpenRouter LLM Provider
  *
- * Translates between Gemini SDK types and OpenAI-compatible format,
- * enabling transparent fallback when Gemini keys are exhausted.
+ * Implements LLMProvider using the OpenAI SDK pointed at OpenRouter.
+ * No Gemini types involved — speaks OpenAI-native throughout.
  *
- * Uses the OpenAI SDK pointed at OpenRouter's base URL.
+ * Usage:
+ *   import { openRouterProvider } from "../lib/openrouter.js";
+ *   const response = await openRouterProvider.chat({ model, messages, ... });
  */
 
 import OpenAI from "openai";
@@ -12,8 +14,16 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from "openai/resources/chat/completions";
-import type { Content, Part, Tool } from "@google/genai";
 import { ENV } from "../config.js";
+import type {
+  LLMProvider,
+  LLMCallParams,
+  LLMResponse,
+  LLMMessage,
+  LLMToolSchema,
+} from "./llm.js";
+
+// ─── OpenAI Client ────────────────────────────────────────────────
 
 let client: OpenAI | null = null;
 
@@ -31,208 +41,151 @@ function getClient(): OpenAI {
   return client;
 }
 
-// ─── Gemini → OpenAI Conversion ────────────────────────────────
+// ─── Conversion: LLM Types → OpenAI Types ─────────────────────────
 
-/**
- * Convert Gemini Content[] to OpenAI messages[].
- */
-function convertContents(
-  contents: Content[],
-  systemInstruction?: string,
-): ChatCompletionMessageParam[] {
-  const messages: ChatCompletionMessageParam[] = [];
+function messagesToOpenAI(messages: LLMMessage[]): ChatCompletionMessageParam[] {
+  const result: ChatCompletionMessageParam[] = [];
 
-  // System instruction becomes a system message
-  if (systemInstruction) {
-    messages.push({ role: "system", content: systemInstruction });
-  }
+  for (const msg of messages) {
+    // System message
+    if (msg.role === "system") {
+      result.push({ role: "system", content: msg.content || "" });
+      continue;
+    }
 
-  for (const content of contents) {
-    const role = content.role === "model" ? "assistant" : "user";
-    const parts = content.parts || [];
-
-    // Check for function calls (assistant tool_calls)
-    const functionCallParts = parts.filter((p) => p.functionCall);
-    if (functionCallParts.length > 0 && role === "assistant") {
-      const textParts = parts.filter((p) => p.text);
-      const textContent = textParts.map((p) => p.text).join("\n") || null;
-
-      messages.push({
+    // Assistant with tool calls
+    if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
+      result.push({
         role: "assistant",
-        content: textContent,
-        tool_calls: functionCallParts.map((p, i) => ({
-          id: `call_${p.functionCall!.name}_${i}`,
+        content: msg.content || null,
+        tool_calls: msg.toolCalls.map((tc) => ({
+          id: tc.id,
           type: "function" as const,
           function: {
-            name: p.functionCall!.name!,
-            arguments: JSON.stringify(p.functionCall!.args || {}),
+            name: tc.name,
+            arguments: JSON.stringify(tc.args),
           },
         })),
       });
       continue;
     }
 
-    // Check for function responses (tool results)
-    const functionResponseParts = parts.filter((p) => p.functionResponse);
-    if (functionResponseParts.length > 0) {
-      for (let fri = 0; fri < functionResponseParts.length; fri++) {
-        const fr = functionResponseParts[fri].functionResponse!;
-        // Match the tool_call_id generated during assistant message conversion
-        // by finding the corresponding tool_call in previous assistant messages
-        let toolCallId = `call_${fr.name}_0`;
-        for (let mi = messages.length - 1; mi >= 0; mi--) {
-          const prev = messages[mi];
-          if (prev.role === "assistant" && "tool_calls" in prev && prev.tool_calls) {
-            const match = prev.tool_calls.find(
-              (tc) => tc.type === "function" && tc.function.name === fr.name,
-            );
-            if (match) {
-              toolCallId = match.id;
-              break;
-            }
-          }
-        }
-        messages.push({
+    // Tool results → tool messages
+    if (msg.toolResults && msg.toolResults.length > 0) {
+      for (const tr of msg.toolResults) {
+        result.push({
           role: "tool",
-          tool_call_id: toolCallId,
-          content: JSON.stringify(fr.response || {}),
+          tool_call_id: tr.callId,
+          content: tr.content,
         });
       }
       continue;
     }
 
-    // Regular text message
-    const text = parts
-      .filter((p) => p.text)
-      .map((p) => p.text)
-      .join("\n");
-    if (text) {
-      messages.push({ role, content: text } as ChatCompletionMessageParam);
+    // Regular user/assistant text
+    if (msg.role === "assistant") {
+      result.push({ role: "assistant", content: msg.content || "" });
+    } else {
+      result.push({ role: "user", content: msg.content || "" });
     }
   }
 
-  return messages;
+  return result;
 }
 
-/**
- * Convert Gemini Tool[] to OpenAI tools[].
- */
-function convertTools(geminiTools: Tool[]): ChatCompletionTool[] {
-  const openaiTools: ChatCompletionTool[] = [];
-
-  for (const tool of geminiTools) {
-    if (!tool.functionDeclarations) continue;
-    for (const fd of tool.functionDeclarations) {
-      openaiTools.push({
-        type: "function",
-        function: {
-          name: fd.name!,
-          description: fd.description || "",
-          parameters: fd.parameters as Record<string, unknown>,
-        },
-      });
-    }
-  }
-
-  return openaiTools;
+function toolSchemasToOpenAI(schemas: LLMToolSchema[]): ChatCompletionTool[] {
+  return schemas.map((s) => ({
+    type: "function" as const,
+    function: {
+      name: s.name,
+      description: s.description,
+      parameters: s.parameters as Record<string, unknown>,
+    },
+  }));
 }
 
-// ─── OpenAI → Gemini Conversion ────────────────────────────────
-
-/**
- * Convert OpenAI response back to Gemini-compatible format.
- * Returns an object with the same shape as Gemini's generateContent response.
- */
-function convertResponse(completion: OpenAI.ChatCompletion): {
-  candidates: Array<{
-    content: { role: string; parts: Part[] };
-  }>;
-} {
+function parseOpenAIResponse(
+  completion: OpenAI.ChatCompletion,
+): LLMResponse {
   const choice = completion.choices[0];
   if (!choice) {
-    return { candidates: [] };
+    return { text: "Error: Empty response from OpenRouter." };
   }
 
-  const parts: Part[] = [];
+  const result: LLMResponse = {};
   const msg = choice.message;
 
   // Text content
   if (msg.content) {
-    parts.push({ text: msg.content });
+    result.text = msg.content;
   }
 
   // Tool calls
   if (msg.tool_calls && msg.tool_calls.length > 0) {
-    for (const tc of msg.tool_calls) {
-      if (tc.type !== "function") continue;
-      let args: Record<string, unknown> = {};
-      try {
-        args = JSON.parse(tc.function.arguments);
-      } catch {
-        args = {};
-      }
-
-      parts.push({
-        functionCall: {
+    result.toolCalls = msg.tool_calls
+      .filter((tc) => tc.type === "function")
+      .map((tc) => {
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(tc.function.arguments);
+        } catch {
+          args = {};
+        }
+        return {
+          id: tc.id,
           name: tc.function.name,
           args,
-        },
+        };
       });
+  }
+
+  // Usage metadata
+  if (completion.usage) {
+    result.usage = {
+      promptTokens: completion.usage.prompt_tokens,
+      completionTokens: completion.usage.completion_tokens,
+      totalTokens: completion.usage.total_tokens,
+    };
+  }
+
+  return result;
+}
+
+// ─── Provider Implementation ──────────────────────────────────────
+
+class OpenRouterProvider implements LLMProvider {
+  async chat(params: LLMCallParams): Promise<LLMResponse> {
+    if (!ENV.OPENROUTER_API_KEY) {
+      throw new Error("OPENROUTER_API_KEY is not configured.");
     }
+
+    // Build messages — prepend system instruction if provided
+    const llmMessages: LLMMessage[] = [];
+    if (params.systemInstruction) {
+      llmMessages.push({ role: "system", content: params.systemInstruction });
+    }
+    llmMessages.push(...params.messages);
+
+    const messages = messagesToOpenAI(llmMessages);
+    const tools =
+      params.tools && params.tools.length > 0
+        ? toolSchemasToOpenAI(params.tools)
+        : undefined;
+
+    const model = params.model || ENV.OPENROUTER_MODEL;
+    console.log(`[OpenRouter] Calling ${model}...`);
+
+    const completion = await getClient().chat.completions.create({
+      model,
+      messages,
+      tools: tools && tools.length > 0 ? tools : undefined,
+      temperature: params.temperature ?? 0.7,
+    });
+
+    console.log(`[OpenRouter] Response received.`);
+    return parseOpenAIResponse(completion);
   }
-
-  return {
-    candidates: [
-      {
-        content: {
-          role: "model",
-          parts,
-        },
-      },
-    ],
-  };
 }
 
-// ─── Public API ────────────────────────────────────────────────
-
-export interface OpenRouterCallParams {
-  contents: Content[];
-  systemInstruction?: string;
-  tools?: Tool[];
-  temperature?: number;
-}
-
-/**
- * Call OpenRouter as a fallback LLM provider.
- *
- * Accepts Gemini-format inputs and returns a Gemini-compatible response,
- * so the agent loop sees no difference.
- */
-export async function callOpenRouter(params: OpenRouterCallParams): Promise<{
-  candidates: Array<{
-    content: { role: string; parts: Part[] };
-  }>;
-}> {
-  if (!ENV.OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY is not configured.");
-  }
-
-  const messages = convertContents(params.contents, params.systemInstruction);
-  const tools =
-    params.tools && params.tools.length > 0
-      ? convertTools(params.tools)
-      : undefined;
-
-  console.log(`[OpenRouter] Calling ${ENV.OPENROUTER_MODEL} (fallback)...`);
-
-  const completion = await getClient().chat.completions.create({
-    model: ENV.OPENROUTER_MODEL,
-    messages,
-    tools: tools && tools.length > 0 ? tools : undefined,
-    temperature: params.temperature ?? 0.7,
-  });
-
-  console.log(`[OpenRouter] Response received.`);
-
-  return convertResponse(completion);
-}
+/** Singleton OpenRouter provider instance. */
+export const openRouterProvider: LLMProvider = new OpenRouterProvider();

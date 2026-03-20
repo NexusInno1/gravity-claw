@@ -8,7 +8,7 @@
 
 import { getSupabase } from "../lib/supabase.js";
 import { setCoreMemory, deleteCoreMemory, getCoreMemory } from "./core.js";
-import { getAI, withRetry } from "../lib/gemini.js";
+import { routedChat } from "../lib/router.js";
 import { ENV } from "../config.js";
 
 const MAX_BUFFER_SIZE = 20;
@@ -116,13 +116,13 @@ async function maybeCompact(chatId: string): Promise<void> {
       .map((m) => `${m.role}: ${m.content}`)
       .join("\n");
 
-    // Use Gemini to create a structured rolling summary
-    const compactionContents = [
-      {
-        role: "user" as const,
-        parts: [
-          {
-            text: `Summarize this conversation into a structured memory block. Use these sections (skip empty ones):
+    // Use LLM to create a structured rolling summary (provider-agnostic)
+    const response = await routedChat({
+      model: ENV.GEMINI_MODEL,
+      messages: [
+        {
+          role: "user",
+          content: `Summarize this conversation into a structured memory block. Use these sections (skip empty ones):
 
 ## Decisions Made
 - ...
@@ -139,32 +139,12 @@ async function maybeCompact(chatId: string): Promise<void> {
 Do NOT include greetings, small talk, or irrelevant chatter. Be concise but preserve all important details.
 
 ${transcript}`,
-          },
-        ],
-      },
-    ];
+        },
+      ],
+      temperature: 0.3,
+    });
 
-    const response = await withRetry(
-      () =>
-        getAI().models.generateContent({
-          model: ENV.GEMINI_MODEL,
-          contents: compactionContents,
-          config: { temperature: 0.3 },
-        }),
-      {
-        contents: compactionContents,
-        systemInstruction: undefined,
-        tools: undefined,
-        temperature: 0.3,
-      },
-    );
-
-    const summary =
-      response.candidates?.[0]?.content?.parts
-        ?.filter((p) => p.text)
-        .map((p) => p.text)
-        .join("\n")
-        .trim() || "";
+    const summary = response.text?.trim() || "";
 
     if (summary) {
       // Save rolling summary to core memory
@@ -282,12 +262,12 @@ export async function compactChatHistory(chatId: string): Promise<string> {
       ? `Previous summary:\n${existingSummary}\n\nNew messages:\n`
       : "";
 
-    const compactionContents = [
-      {
-        role: "user" as const,
-        parts: [
-          {
-            text: `Summarize this conversation into a structured memory block. Use these sections (skip empty ones):
+    const response = await routedChat({
+      model: ENV.GEMINI_MODEL,
+      messages: [
+        {
+          role: "user",
+          content: `Summarize this conversation into a structured memory block. Use these sections (skip empty ones):
 
 ## Decisions Made
 - ...
@@ -304,32 +284,12 @@ export async function compactChatHistory(chatId: string): Promise<string> {
 Do NOT include greetings, small talk, or irrelevant chatter. Be concise but preserve all important details.
 
 ${contextPrefix}${transcript}`,
-          },
-        ],
-      },
-    ];
+        },
+      ],
+      temperature: 0.3,
+    });
 
-    const response = await withRetry(
-      () =>
-        getAI().models.generateContent({
-          model: ENV.GEMINI_MODEL,
-          contents: compactionContents,
-          config: { temperature: 0.3 },
-        }),
-      {
-        contents: compactionContents,
-        systemInstruction: undefined,
-        tools: undefined,
-        temperature: 0.3,
-      },
-    );
-
-    const summary =
-      response.candidates?.[0]?.content?.parts
-        ?.filter((p) => p.text)
-        .map((p) => p.text)
-        .join("\n")
-        .trim() || "";
+    const summary = response.text?.trim() || "";
 
     if (!summary) {
       return "⚠️ Could not generate summary from messages.";

@@ -15,6 +15,8 @@
  */
 
 import { ENV } from "../config.js";
+import { getProviderName } from "../lib/router.js";
+import { PROFILES } from "../agents/profiles.js";
 import {
   getSessionStats,
   resetSessionStats,
@@ -50,9 +52,10 @@ function clearModelOverride(chatId: string): void {
   sessionModelOverrides.delete(chatId);
 }
 
-// ─── Known Gemini Models ──────────────────────────────────────────
+// ─── Known Model Shortcuts ────────────────────────────────────────
 
 const KNOWN_MODELS: Record<string, string> = {
+  // Gemini shortcuts
   "flash": "gemini-2.5-flash",
   "flash-2.5": "gemini-2.5-flash",
   "flash-2.0": "gemini-2.0-flash",
@@ -61,14 +64,32 @@ const KNOWN_MODELS: Record<string, string> = {
   "pro-1.5": "gemini-1.5-pro",
   "flash-1.5": "gemini-1.5-flash",
   "flash-lite": "gemini-2.0-flash-lite",
+
+  // OpenRouter shortcuts — popular free/cheap models
+  "mistral": "mistralai/mistral-small-3.1-24b-instruct:free",
+  "mistral-small": "mistralai/mistral-small-3.1-24b-instruct:free",
+  "llama": "meta-llama/llama-4-maverick:free",
+  "llama-scout": "meta-llama/llama-4-scout:free",
+  "llama-maverick": "meta-llama/llama-4-maverick:free",
+  "deepseek": "deepseek/deepseek-chat-v3-0324:free",
+  "deepseek-r1": "deepseek/deepseek-r1-0528:free",
+  "qwen": "qwen/qwen3-235b-a22b:free",
+  "phi": "microsoft/phi-4-reasoning-plus:free",
 };
 
 function resolveModel(raw: string): string | null {
   const lower = raw.toLowerCase().trim();
-  // Allow short aliases
+
+  // Short aliases
   if (KNOWN_MODELS[lower]) return KNOWN_MODELS[lower];
-  // Allow full model names starting with "gemini-"
+
+  // Full Gemini model name (e.g. "gemini-2.0-flash")
   if (lower.startsWith("gemini-")) return lower;
+
+  // Full OpenRouter model name (e.g. "anthropic/claude-3-haiku")
+  // OpenRouter models always contain a "/" (provider/model format)
+  if (lower.includes("/")) return lower;
+
   return null;
 }
 
@@ -123,6 +144,9 @@ export async function handleSlashCommand(
     case "/help":
       return handleHelp();
 
+    case "/agents":
+      return handleAgents();
+
     default:
       // Unknown slash command — let the LLM handle it naturally
       return { handled: false };
@@ -173,12 +197,14 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
   const currentModel = getEffectiveModel(chatId);
   const defaultModel = ENV.GEMINI_MODEL;
   const override = sessionModelOverrides.get(chatId);
+  const provider = getProviderName(currentModel);
 
   // /model — show current state
   if (args.length === 0) {
     const lines = [
       "🤖 **Model Info**\n",
       `🟢 **Active model:**   \`${currentModel}\``,
+      `🔌 **Provider:**        ${provider}`,
       `⚙️  **Config default:**  \`${defaultModel}\``,
     ];
 
@@ -188,10 +214,13 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
 
     lines.push(
       "",
-      "**Switch model:**  `/model flash` | `/model pro` | `/model gemini-2.0-flash`",
+      "**Gemini models:**  `/model flash` | `/model pro` | `/model gemini-2.0-flash`",
+      "**OpenRouter models:** `/model mistral` | `/model llama` | `/model deepseek`",
+      "**Any model:**     `/model provider/model-name` (e.g. `/model anthropic/claude-3-haiku`)",
       "**Reset to default:** `/model reset`",
       "",
-      "**Shortcuts:** `flash`, `flash-2.0`, `flash-lite`, `pro`, `pro-1.5`, `flash-1.5`",
+      "**Gemini shortcuts:** `flash`, `flash-2.0`, `flash-lite`, `pro`, `pro-1.5`, `flash-1.5`",
+      "**OpenRouter shortcuts:** `mistral`, `llama`, `llama-scout`, `deepseek`, `deepseek-r1`, `qwen`, `phi`",
     );
 
     return { handled: true, response: lines.join("\n") };
@@ -213,16 +242,18 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
       handled: true,
       response: [
         `❌ Unknown model: \`${args[0]}\`\n`,
-        "**Valid shortcuts:** `flash`, `flash-2.0`, `flash-2.5`, `flash-lite`, `flash-1.5`, `pro`, `pro-1.5`, `pro-2.5`",
-        "**Or use full name:** e.g. \`gemini-2.0-flash\`",
+        "**Gemini shortcuts:** `flash`, `flash-2.0`, `flash-2.5`, `flash-lite`, `flash-1.5`, `pro`, `pro-1.5`, `pro-2.5`",
+        "**OpenRouter shortcuts:** `mistral`, `llama`, `llama-scout`, `deepseek`, `deepseek-r1`, `qwen`, `phi`",
+        "**Or use full name:** e.g. `gemini-2.0-flash` or `anthropic/claude-3-haiku`",
       ].join("\n"),
     };
   }
 
+  const resolvedProvider = getProviderName(resolved);
   sessionModelOverrides.set(chatId, resolved);
   return {
     handled: true,
-    response: `✅ Model switched to \`${resolved}\` for this session.\n\n_Use \`/model reset\` to revert to the config default._`,
+    response: `✅ Model switched to \`${resolved}\` (${resolvedProvider}) for this session.\n\n_Use \`/model reset\` to revert to the config default._`,
   };
 }
 
@@ -234,10 +265,52 @@ function handleHelp(): SlashCommandResult {
     "`/new`      — Start fresh: clear history, reset stats & model override",
     "`/compact`  — Compress current buffer into a rolling summary",
     "`/model`    — Show active model or switch it for this session",
+    "`/agents`   — List available sub-agents for delegation",
     "`/help`     — Show this message",
     "",
     "_Commands are processed locally and never sent to the LLM._",
   ].join("\n");
 
   return { handled: true, response };
+}
+
+function handleAgents(): SlashCommandResult {
+  const lines = [
+    "🤖 **Available Sub-Agents**\n",
+    "The main agent can delegate complex tasks to specialized sub-agents.",
+    "Just ask naturally — Gravity Claw decides when to delegate.\n",
+  ];
+
+  for (const profile of Object.values(PROFILES)) {
+    lines.push(
+      `${profile.icon} **${profile.label}** (\`${profile.name}\`)`,
+    );
+    // Extract first sentence of system prompt as description
+    const firstLine = profile.systemPrompt
+      .split("\n")
+      .find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("You are"));
+    if (firstLine) {
+      lines.push(`   ${firstLine.trim()}`);
+    }
+    const toolInfo = profile.allowedTools
+      ? `Tools: ${profile.allowedTools.join(", ")}`
+      : profile.deniedTools
+        ? `All tools except: ${profile.deniedTools.join(", ")}`
+        : "All tools";
+    lines.push(
+      `   _${toolInfo} · temp=${profile.temperature} · max ${profile.maxIterations} iterations_`,
+    );
+    lines.push("");
+  }
+
+  lines.push(
+    "**Examples:**",
+    '  _"Research the latest React 19 features in depth"_ → 🔬 Research Agent',
+    '  _"Write a Python script to parse CSV files"_ → 💻 Code Agent',
+    '  _"Summarize this article: [url]"_ → 📋 Summary Agent',
+    '  _"Write a poem about space exploration"_ → 🎨 Creative Agent',
+    '  _"Compare AWS vs GCP for a startup"_ → 📊 Analysis Agent',
+  );
+
+  return { handled: true, response: lines.join("\n") };
 }

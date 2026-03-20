@@ -1,40 +1,37 @@
 /**
- * Centralized Gemini Client — with Proactive Round-Robin Key Rotation
- * + Automatic OpenRouter Fallback
+ * Gemini LLM Provider
  *
- * Strategy to maximize uptime:
- *   1. Round-robin: rotate key on EVERY call, not just on failure
- *   2. On 429: wait the retry delay from the API, then retry with next key
- *   3. Track exhausted keys and reset after the quota window
- *   4. If ALL keys exhausted: fall back to OpenRouter automatically
+ * Implements LLMProvider using the @google/genai SDK.
+ * Handles:
+ *   - Proactive round-robin API key rotation
+ *   - 429 retry with exponential back-off
+ *   - Transparent conversion between LLM-agnostic types and Gemini types
  *
  * Usage:
- *   import { getAI, withRetry } from "../lib/gemini.js";
- *   const result = await withRetry(
- *     () => getAI().models.generateContent({...}),
- *     { contents, config: { systemInstruction, tools, temperature } }
- *   );
+ *   import { geminiProvider } from "../lib/gemini.js";
+ *   const response = await geminiProvider.chat({ model, messages, ... });
  */
 
-import { GoogleGenAI } from "@google/genai";
-import type { Content, Tool } from "@google/genai";
+import { GoogleGenAI, Content, Part, Tool, Type } from "@google/genai";
 import { ENV } from "../config.js";
-import { callOpenRouter } from "./openrouter.js";
+import type {
+  LLMProvider,
+  LLMCallParams,
+  LLMResponse,
+  LLMMessage,
+  LLMToolCall,
+  LLMToolResult,
+  LLMToolSchema,
+} from "./llm.js";
+
+// ─── Key Rotation ─────────────────────────────────────────────────
 
 let currentKeyIndex = 0;
 const exhaustedKeys = new Set<number>();
 let lastResetTime = Date.now();
-
-// Free-tier quotas reset per minute (RPM) and per day (RPD).
-// Reset exhausted tracking every 60 seconds for RPM recovery.
 const RESET_INTERVAL_MS = 60 * 1000;
 
-/**
- * Get a GoogleGenAI instance using the currently active API key.
- * Proactively rotates to the next key on each call to spread load evenly.
- */
-export function getAI(): GoogleGenAI {
-  // Reset exhausted keys periodically (RPM quotas refresh every minute)
+function getAI(): GoogleGenAI {
   if (Date.now() - lastResetTime > RESET_INTERVAL_MS) {
     if (exhaustedKeys.size > 0) {
       console.log(
@@ -47,17 +44,10 @@ export function getAI(): GoogleGenAI {
 
   const keys = ENV.GEMINI_API_KEYS;
   const key = keys[currentKeyIndex];
-
-  // Proactive round-robin: advance to next key for the next call
   currentKeyIndex = (currentKeyIndex + 1) % keys.length;
-
   return new GoogleGenAI({ apiKey: key });
 }
 
-/**
- * Rotate to the next non-exhausted API key.
- * Returns true if a new key was found, false if all keys are exhausted.
- */
 function rotateKey(): boolean {
   const keys = ENV.GEMINI_API_KEYS;
   exhaustedKeys.add(currentKeyIndex);
@@ -66,7 +56,6 @@ function rotateKey(): boolean {
     `[Gemini] Key ${currentKeyIndex + 1}/${keys.length} hit rate limit. Rotating...`,
   );
 
-  // Find next non-exhausted key
   for (let i = 0; i < keys.length; i++) {
     const nextIndex = (currentKeyIndex + 1 + i) % keys.length;
     if (!exhaustedKeys.has(nextIndex)) {
@@ -77,14 +66,9 @@ function rotateKey(): boolean {
       return true;
     }
   }
-
   return false;
 }
 
-/**
- * Extract retry delay from a 429 error response.
- * Falls back to 5 seconds if not parseable.
- */
 function getRetryDelay(error: unknown): number {
   try {
     const message = String((error as Error).message || "");
@@ -92,140 +76,214 @@ function getRetryDelay(error: unknown): number {
     if (match) {
       return Math.min(Math.ceil(parseFloat(match[1])) * 1000, 60000);
     }
-  } catch {}
-  return 5000; // Default 5 second wait
+  } catch { }
+  return 5000;
 }
 
-/**
- * Sleep for a given number of milliseconds.
- */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Fallback params — enough info to replay the call on OpenRouter.
- * Pass these when calling withRetry so fallback can kick in.
- */
-export interface FallbackParams {
-  contents: Content[];
+// ─── Conversion: LLM Types → Gemini Types ─────────────────────────
+
+function messagesToContents(messages: LLMMessage[]): {
   systemInstruction?: string;
-  tools?: Tool[];
-  temperature?: number;
+  contents: Content[];
+} {
+  let systemInstruction: string | undefined;
+  const contents: Content[] = [];
+
+  for (const msg of messages) {
+    // System messages become Gemini's systemInstruction
+    if (msg.role === "system") {
+      systemInstruction = (systemInstruction ? systemInstruction + "\n\n" : "") + (msg.content || "");
+      continue;
+    }
+
+    const role = msg.role === "assistant" ? "model" : "user";
+    const parts: Part[] = [];
+
+    // Text content
+    if (msg.content) {
+      parts.push({ text: msg.content });
+    }
+
+    // Outgoing tool calls (assistant → model)
+    if (msg.toolCalls && msg.toolCalls.length > 0) {
+      for (const tc of msg.toolCalls) {
+        parts.push({
+          functionCall: {
+            name: tc.name,
+            args: tc.args,
+          },
+        });
+      }
+    }
+
+    // Incoming tool results (user → function responses)
+    if (msg.toolResults && msg.toolResults.length > 0) {
+      for (const tr of msg.toolResults) {
+        parts.push({
+          functionResponse: {
+            name: tr.name,
+            response: { result: tr.content },
+          },
+        });
+      }
+    }
+
+    if (parts.length > 0) {
+      contents.push({ role, parts });
+    }
+  }
+
+  return { systemInstruction, contents };
 }
 
-/**
- * Execute a Gemini API call with:
- *   - Automatic key rotation on 429 errors
- *   - Wait-based retry using the API's suggested delay
- *   - Up to (keys × 2) attempts to account for wait+retry cycles
- *   - Automatic OpenRouter fallback when all Gemini keys are exhausted
- *
- * @param fn - A function that performs the Gemini API call using getAI()
- * @param fallbackParams - Optional params to replay the call on OpenRouter if Gemini fails
- * @returns The result of the API call
- */
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  fallbackParams?: FallbackParams,
-): Promise<T> {
-  const keys = ENV.GEMINI_API_KEYS;
-  const maxAttempts = keys.length * 2; // Allow wait+retry cycles
-  let lastError: unknown;
+function toolSchemasToGeminiTools(schemas: LLMToolSchema[]): Tool[] {
+  if (schemas.length === 0) return [];
 
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (error: unknown) {
-      lastError = error;
-      const status = (error as { status?: number }).status;
+  return [
+    {
+      functionDeclarations: schemas.map((s) => ({
+        name: s.name,
+        description: s.description,
+        parameters: s.parameters,
+      })),
+    },
+  ];
+}
 
-      if (status === 429) {
-        const rotated = rotateKey();
+function parseGeminiResponse(
+  candidate: { content?: { parts?: Part[] } },
+  usageMeta?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number },
+): LLMResponse {
+  const parts = candidate.content?.parts || [];
+  const result: LLMResponse = {};
 
-        if (!rotated) {
-          // All keys exhausted — try OpenRouter fallback FIRST
-          if (fallbackParams && ENV.OPENROUTER_API_KEY) {
-            console.log(
-              "[Gemini] All keys exhausted — falling back to OpenRouter...",
-            );
-            try {
-              const fallbackResponse = await callOpenRouter({
-                contents: fallbackParams.contents,
-                systemInstruction: fallbackParams.systemInstruction,
-                tools: fallbackParams.tools,
-                temperature: fallbackParams.temperature,
-              });
-              return fallbackResponse as T;
-            } catch (fallbackError) {
-              console.error(
-                "[OpenRouter] Fallback also failed:",
-                fallbackError,
-              );
-              // Fall through to Gemini retry wait
-            }
+  // Text parts
+  const textParts = parts.filter((p) => p.text).map((p) => p.text!);
+  if (textParts.length > 0) {
+    result.text = textParts.join("\n");
+  }
+
+  // Tool call parts
+  const fnCallParts = parts.filter((p) => p.functionCall);
+  if (fnCallParts.length > 0) {
+    result.toolCalls = fnCallParts.map((p, i) => ({
+      id: `gemini_call_${p.functionCall!.name}_${i}`,
+      name: p.functionCall!.name!,
+      args: (p.functionCall!.args as Record<string, unknown>) || {},
+    }));
+  }
+
+  // Usage metadata
+  if (usageMeta) {
+    result.usage = {
+      promptTokens: usageMeta.promptTokenCount || 0,
+      completionTokens: usageMeta.candidatesTokenCount || 0,
+      totalTokens: usageMeta.totalTokenCount || 0,
+    };
+  }
+
+  return result;
+}
+
+// ─── Provider Implementation ──────────────────────────────────────
+
+class GeminiProvider implements LLMProvider {
+  async chat(params: LLMCallParams): Promise<LLMResponse> {
+    const { systemInstruction: msgSystemInstruction, contents } =
+      messagesToContents(params.messages);
+
+    // Merge explicit system instruction with any from messages
+    const systemInstruction = [params.systemInstruction, msgSystemInstruction]
+      .filter(Boolean)
+      .join("\n\n") || undefined;
+
+    const tools =
+      params.tools && params.tools.length > 0
+        ? toolSchemasToGeminiTools(params.tools)
+        : undefined;
+
+    const keys = ENV.GEMINI_API_KEYS;
+    const maxAttempts = keys.length * 2;
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const response = await getAI().models.generateContent({
+          model: params.model,
+          contents,
+          config: {
+            tools,
+            systemInstruction,
+            temperature: params.temperature ?? 0.7,
+          },
+        });
+
+        if (!response.candidates || response.candidates.length === 0) {
+          return { text: "Error: Empty response from Gemini." };
+        }
+
+        const candidate = response.candidates[0];
+        if (!candidate.content || !candidate.content.parts) {
+          return { text: "Error: Empty content from Gemini." };
+        }
+
+        const usageMeta = (
+          response as {
+            usageMetadata?: {
+              promptTokenCount?: number;
+              candidatesTokenCount?: number;
+              totalTokenCount?: number;
+            };
           }
+        ).usageMetadata;
 
-          // No fallback available or fallback failed — wait for Gemini quota reset
-          const delay = getRetryDelay(error);
-          console.log(`[Gemini] Waiting ${delay / 1000}s for quota reset...`);
-          await sleep(delay);
-          exhaustedKeys.clear();
-          lastResetTime = Date.now();
+        return parseGeminiResponse(candidate, usageMeta);
+      } catch (error: unknown) {
+        lastError = error;
+        const status = (error as { status?: number }).status;
+
+        if (status === 429) {
+          const rotated = rotateKey();
+          if (!rotated) {
+            // All keys exhausted — wait for quota reset, then retry
+            const delay = getRetryDelay(error);
+            console.log(
+              `[Gemini] All keys exhausted. Waiting ${delay / 1000}s for quota reset...`,
+            );
+            await sleep(delay);
+            exhaustedKeys.clear();
+            lastResetTime = Date.now();
+            continue;
+          }
+          await sleep(500);
           continue;
         }
 
-        // Small delay between rotations to avoid hammering the API
-        await sleep(500);
-        continue;
-      }
-
-      if (status === 404) {
-        // Model not found — try next key (might be regional)
-        rotateKey();
-        continue;
-      }
-
-      // For any other error, try OpenRouter fallback if available
-      if (fallbackParams && ENV.OPENROUTER_API_KEY) {
-        console.log(
-          `[Gemini] Error (${status || "unknown"}) — trying OpenRouter fallback...`,
-        );
-        try {
-          const fallbackResponse = await callOpenRouter({
-            contents: fallbackParams.contents,
-            systemInstruction: fallbackParams.systemInstruction,
-            tools: fallbackParams.tools,
-            temperature: fallbackParams.temperature,
-          });
-          return fallbackResponse as T;
-        } catch (fallbackError) {
-          console.error("[OpenRouter] Fallback also failed:", fallbackError);
+        if (status === 404) {
+          rotateKey();
+          continue;
         }
+
+        // Non-retryable — throw immediately
+        throw error;
       }
-
-      // Non-retryable error — throw immediately
-      throw error;
     }
-  }
 
-  // All retries exhausted — one final OpenRouter attempt
-  if (fallbackParams && ENV.OPENROUTER_API_KEY) {
-    console.log(
-      "[Gemini] All retries exhausted — final OpenRouter fallback attempt...",
-    );
-    try {
-      const fallbackResponse = await callOpenRouter({
-        contents: fallbackParams.contents,
-        systemInstruction: fallbackParams.systemInstruction,
-        tools: fallbackParams.tools,
-        temperature: fallbackParams.temperature,
-      });
-      return fallbackResponse as T;
-    } catch (fallbackError) {
-      console.error("[OpenRouter] Final fallback failed:", fallbackError);
-    }
+    throw lastError || new Error("Gemini: All retries exhausted.");
   }
+}
 
-  throw lastError || new Error("All LLM providers exhausted after retries.");
+/** Singleton Gemini provider instance. */
+export const geminiProvider: LLMProvider = new GeminiProvider();
+
+/**
+ * Check if all Gemini API keys are currently exhausted.
+ * Used by the router to decide whether to fall back.
+ */
+export function areAllKeysExhausted(): boolean {
+  return exhaustedKeys.size >= ENV.GEMINI_API_KEYS.length;
 }

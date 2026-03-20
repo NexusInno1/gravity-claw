@@ -36,6 +36,7 @@ import type {
 } from "../lib/llm.js";
 import { routedChat, getProviderName } from "../lib/router.js";
 import { geminiToolsToSchemas } from "../lib/tool-bridge.js";
+import { getAI } from "../lib/gemini.js";
 
 import { ENV } from "../config.js";
 
@@ -421,7 +422,10 @@ export async function runAgentLoop(
           toolOutputText = `Error calling tool: ${String(error)}`;
         }
 
-        console.log(`[Agent] Tool result: ${toolOutputText}`);
+        const preview = toolOutputText.length > 200
+          ? toolOutputText.substring(0, 200) + "..."
+          : toolOutputText;
+        console.log(`[Agent] Tool result (${toolOutputText.length} chars): ${preview}`);
 
         toolResults.push({
           callId: call.id,
@@ -461,9 +465,9 @@ export async function runAgentLoop(
 /**
  * Agent loop variant that accepts an image for multimodal (vision) queries.
  *
- * Note: Currently images are only natively supported through Gemini's
- * inline data format. For OpenRouter vision models, this would need
- * base64 → URL conversion. For now, this always uses Gemini.
+ * Uses the Gemini SDK directly for inline base64 image support.
+ * Shares the key rotation system via getAI() so vision doesn't
+ * get stuck on a single exhausted key.
  *
  * @param userMessage Text accompanying the image (or a default prompt)
  * @param chatId The chat ID
@@ -481,20 +485,12 @@ export async function runAgentLoopWithImage(
 
   const systemInstruction = await buildSystemInstruction(chatId, userMessage);
 
-  // For vision, we need to use the Gemini SDK directly since it supports
-  // inline base64 image data. The provider-agnostic layer doesn't abstract
-  // multimodal content yet — this is a Gemini-specific path.
-  const { GoogleGenAI } = await import("@google/genai");
-
   // We still use the tool pipeline through the agnostic layer
   const { schemas: availableTools, permittedNames } = getAvailableTools();
   let iterationCount = 0;
 
   // Build Gemini-native content with inline image
   const activeVisionModel = getEffectiveModel(chatId);
-
-  const geminiKeys = ENV.GEMINI_API_KEYS;
-  const ai = new GoogleGenAI({ apiKey: geminiKeys[0] });
 
   // Use generic array to avoid type issues with mixed role literals
   const geminiContents: Array<{ role: string; parts: any[] }> = [
@@ -524,16 +520,29 @@ export async function runAgentLoopWithImage(
       `[Agent/Vision] Iteration ${iterationCount}/${MAX_ITERATIONS}`,
     );
 
+    // Use shared key rotation via getAI() — not hardcoded keys[0]
+    const ai = getAI();
+
     const visionStart = Date.now();
-    const response = await ai.models.generateContent({
-      model: activeVisionModel,
-      contents: geminiContents,
-      config: {
-        tools: allGeminiTools.length > 0 ? allGeminiTools : undefined,
-        systemInstruction,
-        temperature: 0.7,
-      },
-    });
+    let response;
+    try {
+      response = await ai.models.generateContent({
+        model: activeVisionModel,
+        contents: geminiContents,
+        config: {
+          tools: allGeminiTools.length > 0 ? allGeminiTools : undefined,
+          systemInstruction,
+          temperature: 0.7,
+        },
+      });
+    } catch (error: unknown) {
+      const status = (error as { status?: number }).status;
+      if (status === 429) {
+        console.warn(`[Agent/Vision] Rate limited, retrying with next key...`);
+        continue; // getAI() will rotate to the next key
+      }
+      throw error;
+    }
     const visionLatencyMs = Date.now() - visionStart;
 
     // Track token usage

@@ -27,11 +27,16 @@ import type {
 // ─── Key Rotation ─────────────────────────────────────────────────
 
 let currentKeyIndex = 0;
+let lastUsedKeyIndex = 0;
 const exhaustedKeys = new Set<number>();
 let lastResetTime = Date.now();
 const RESET_INTERVAL_MS = 60 * 1000;
 
-function getAI(): GoogleGenAI {
+/**
+ * Get a GoogleGenAI instance using the next available (non-exhausted) key.
+ * Exported so vision path and semantic embeddings can share rotation.
+ */
+export function getAI(): GoogleGenAI {
   if (Date.now() - lastResetTime > RESET_INTERVAL_MS) {
     if (exhaustedKeys.size > 0) {
       console.log(
@@ -43,21 +48,33 @@ function getAI(): GoogleGenAI {
   }
 
   const keys = ENV.GEMINI_API_KEYS;
-  const key = keys[currentKeyIndex];
+
+  // Skip exhausted keys proactively
+  for (let i = 0; i < keys.length; i++) {
+    const idx = (currentKeyIndex + i) % keys.length;
+    if (!exhaustedKeys.has(idx)) {
+      lastUsedKeyIndex = idx;
+      currentKeyIndex = (idx + 1) % keys.length;
+      return new GoogleGenAI({ apiKey: keys[idx] });
+    }
+  }
+
+  // All exhausted — use current anyway (retry logic will handle it)
+  lastUsedKeyIndex = currentKeyIndex;
   currentKeyIndex = (currentKeyIndex + 1) % keys.length;
-  return new GoogleGenAI({ apiKey: key });
+  return new GoogleGenAI({ apiKey: keys[lastUsedKeyIndex] });
 }
 
 function rotateKey(): boolean {
   const keys = ENV.GEMINI_API_KEYS;
-  exhaustedKeys.add(currentKeyIndex);
+  exhaustedKeys.add(lastUsedKeyIndex);
 
   console.log(
-    `[Gemini] Key ${currentKeyIndex + 1}/${keys.length} hit rate limit. Rotating...`,
+    `[Gemini] Key ${lastUsedKeyIndex + 1}/${keys.length} hit rate limit. Rotating...`,
   );
 
   for (let i = 0; i < keys.length; i++) {
-    const nextIndex = (currentKeyIndex + 1 + i) % keys.length;
+    const nextIndex = (lastUsedKeyIndex + 1 + i) % keys.length;
     if (!exhaustedKeys.has(nextIndex)) {
       currentKeyIndex = nextIndex;
       console.log(

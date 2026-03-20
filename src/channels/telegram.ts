@@ -4,89 +4,96 @@
  * Implements the Channel interface for Telegram using Grammy.
  * All Telegram-specific logic lives here — the rest of the system
  * is completely platform-agnostic.
+ *
+ * Commands are NOT handled here — they are centralized in
+ * src/commands/slash-commands.ts and routed through the message handler.
  */
 
 import { Bot } from "grammy";
 import { ENV } from "../config.js";
 import { whitelistMiddleware } from "./whitelist.js";
-import { clearChatHistory, getMessageCount, compactChatHistory } from "../memory/buffer.js";
 import { initReminderCallback } from "../tools/set_reminder.js";
-import {
-  resetSessionStats,
-  formatSessionStatus,
-} from "../commands/session-stats.js";
-import {
-  getHeartbeatStatus,
-  updateHeartbeatTime,
-} from "../heartbeat/scheduler.js";
+import { chunkMessage, friendlyError } from "./message-utils.js";
 import type { Channel, MessageHandler, IncomingMessage } from "./types.js";
-
-/**
- * Convert a raw Error into a clean, user-facing message.
- * Never leaks stack traces or internal paths.
- */
-function friendlyError(error: unknown, context: string): string {
-  const msg = error instanceof Error ? error.message : String(error);
-  const lower = msg.toLowerCase();
-
-  if (lower.includes("429") || lower.includes("quota") || lower.includes("rate limit")) {
-    return "⚠️ The AI is under heavy load right now. All API keys are busy — try again in a moment.";
-  }
-  if (lower.includes("401") || lower.includes("unauthorized") || lower.includes("api key")) {
-    return "🔑 API authentication issue. Check your API keys in the config.";
-  }
-  if (lower.includes("timeout") || lower.includes("etimedout") || lower.includes("econnreset")) {
-    return "⏱️ The request timed out. The server might be slow — please try again.";
-  }
-  if (lower.includes("network") || lower.includes("enotfound") || lower.includes("econnrefused")) {
-    return "📡 Network error. Check your internet connection and try again.";
-  }
-  if (lower.includes("supabase") || lower.includes("postgres")) {
-    return "🗄️ Database error. Memory features may be temporarily unavailable.";
-  }
-
-  // Generic fallback — show context but not the raw error
-  console.error(`[Telegram] ${context} error:`, error);
-  return `❌ Something went wrong during ${context}. The issue has been logged.`;
-}
 
 const TELEGRAM_MAX_LENGTH = 4096;
 
+// ─── Markdown → Telegram HTML Converter ───────────────────────────
+
 /**
- * Split a long message into chunks that fit Telegram's 4096 char limit.
- * Splits at paragraph boundaries first, then sentence boundaries.
+ * Escape HTML special characters so they don't break Telegram's HTML parser.
  */
-function chunkMessage(text: string): string[] {
-  if (text.length <= TELEGRAM_MAX_LENGTH) return [text];
-
-  const chunks: string[] = [];
-  let remaining = text;
-
-  while (remaining.length > 0) {
-    if (remaining.length <= TELEGRAM_MAX_LENGTH) {
-      chunks.push(remaining);
-      break;
-    }
-
-    // Find a good split point: paragraph break > sentence end > space
-    let splitAt = remaining.lastIndexOf("\n\n", TELEGRAM_MAX_LENGTH);
-    if (splitAt < TELEGRAM_MAX_LENGTH * 0.3) {
-      splitAt = remaining.lastIndexOf("\n", TELEGRAM_MAX_LENGTH);
-    }
-    if (splitAt < TELEGRAM_MAX_LENGTH * 0.3) {
-      splitAt = remaining.lastIndexOf(". ", TELEGRAM_MAX_LENGTH);
-      if (splitAt > 0) splitAt += 1; // include the period
-    }
-    if (splitAt < TELEGRAM_MAX_LENGTH * 0.3) {
-      splitAt = TELEGRAM_MAX_LENGTH;
-    }
-
-    chunks.push(remaining.substring(0, splitAt).trimEnd());
-    remaining = remaining.substring(splitAt).trimStart();
-  }
-
-  return chunks;
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
+
+/**
+ * Convert standard markdown (as output by LLMs) into Telegram-safe HTML.
+ *
+ * Telegram's legacy "Markdown" parse_mode doesn't support **bold** or
+ * many common markdown features. HTML mode is far more reliable.
+ *
+ * Handles: **bold**, *italic*, _italic_, `code`, ```code blocks```,
+ * [links](url), ## headers, > blockquotes, ~~strikethrough~~
+ */
+function markdownToTelegramHtml(text: string): string {
+  // 1️⃣ Extract fenced code blocks before any processing
+  const codeBlocks: string[] = [];
+  let result = text.replace(/```(?:\w*\n)?([\s\S]*?)```/g, (_, code: string) => {
+    codeBlocks.push(code.trim());
+    return `\x00CB${codeBlocks.length - 1}\x00`;
+  });
+
+  // 2️⃣ Extract inline code spans
+  const inlineCodes: string[] = [];
+  result = result.replace(/`([^`\n]+)`/g, (_, code: string) => {
+    inlineCodes.push(code);
+    return `\x00IC${inlineCodes.length - 1}\x00`;
+  });
+
+  // 3️⃣ Escape HTML entities in the remaining text
+  result = escapeHtml(result);
+
+  // 4️⃣ Convert markdown formatting → HTML tags
+
+  // Headers (## text) → bold line
+  result = result.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
+
+  // Bold: **text** (must come before single * italic)
+  result = result.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+
+  // Italic: *text* (single, not double — lookbehind/ahead avoids partial bold)
+  result = result.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, "<i>$1</i>");
+
+  // Italic with underscore: _text_
+  result = result.replace(/(?<!\w)_([^_\n]+?)_(?!\w)/g, "<i>$1</i>");
+
+  // Strikethrough: ~~text~~
+  result = result.replace(/~~(.+?)~~/g, "<s>$1</s>");
+
+  // Links: [text](url)
+  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+  // Blockquotes:  > text → just the text (no native blockquote in Telegram)
+  // After escapeHtml, ">" became "&gt;"
+  result = result.replace(/^&gt;\s?(.*)$/gm, "┃ $1");
+
+  // 5️⃣ Restore code blocks and inline code (with HTML-escaped content)
+  result = result.replace(/\x00CB(\d+)\x00/g, (_, i: string) => {
+    return `<pre>${escapeHtml(codeBlocks[parseInt(i)])}</pre>`;
+  });
+
+  result = result.replace(/\x00IC(\d+)\x00/g, (_, i: string) => {
+    return `<code>${escapeHtml(inlineCodes[parseInt(i)])}</code>`;
+  });
+
+  return result;
+}
+
+// ─── Telegram Channel ────────────────────────────────────────────
 
 export class TelegramChannel implements Channel {
   readonly name = "Telegram";
@@ -107,18 +114,21 @@ export class TelegramChannel implements Channel {
   }
 
   /**
-   * Send a message with Markdown parsing, falling back to plain text if it fails.
+   * Send a message with HTML parsing, falling back to plain text if it fails.
+   * Converts standard markdown to Telegram HTML before sending.
    */
   private async sendReply(chatId: string | number, text: string): Promise<void> {
-    const chunks = chunkMessage(text);
+    const html = markdownToTelegramHtml(text);
+    const chunks = chunkMessage(html, TELEGRAM_MAX_LENGTH);
     for (const chunk of chunks) {
       try {
         await this.bot.api.sendMessage(chatId, chunk, {
-          parse_mode: "Markdown",
+          parse_mode: "HTML",
         });
       } catch {
-        // Markdown parsing failed — send plain
-        await this.bot.api.sendMessage(chatId, chunk);
+        // HTML parsing failed — send plain text (strip tags)
+        const plain = chunk.replace(/<[^>]+>/g, "");
+        await this.bot.api.sendMessage(chatId, plain);
       }
     }
   }
@@ -135,135 +145,120 @@ export class TelegramChannel implements Channel {
     // Apply security whitelist middleware first
     this.bot.use(whitelistMiddleware);
 
-    // ── Commands ────────────────────────────────────────────────
+    // ── Document messages (file reading) ─────────────────────────
 
-    // /start — clear conversation history and start fresh
-    this.bot.command("start", async (ctx) => {
+    this.bot.on("message:document", async (ctx) => {
+      if (!this.handler) return;
+
       const chatId = String(ctx.chat.id);
-      console.log(
-        `[Telegram] /start command from ${ctx.from?.id} — clearing history.`,
-      );
+      const userId = String(ctx.from.id);
+      const doc = ctx.message.document;
+      const caption = ctx.message.caption || "";
 
-      await ctx.replyWithChatAction("typing");
+      // Supported text-based file extensions
+      const fileName = doc.file_name || "unknown";
+      const ext = fileName.split(".").pop()?.toLowerCase() || "";
+      const textExts = new Set([
+        "txt", "md", "csv", "json", "xml", "html", "htm",
+        "js", "ts", "py", "java", "c", "cpp", "h", "css",
+        "yaml", "yml", "toml", "ini", "cfg", "log", "sql",
+        "sh", "bat", "ps1", "rb", "go", "rs", "swift",
+      ]);
+      const isPdf = ext === "pdf";
+      const isText = textExts.has(ext);
 
-      try {
-        await clearChatHistory(chatId);
-        resetSessionStats(chatId);
+      if (!isPdf && !isText) {
         await this.sendReply(
           ctx.chat.id,
-          "🔄 History cleared. Fresh session started.\n\nHow can I help you today?",
+          `📄 I can't read \`.${ext}\` files yet. Supported: text files (.txt, .md, .csv, .json, .py, .ts, .js, etc.) and PDFs.`,
         );
-      } catch (error) {
-        console.error("[Telegram] /start error:", error);
-        await ctx.reply(friendlyError(error, "clearing history"));
+        return;
       }
-    });
 
-    // /new or /reset — clear conversation history and reset session stats
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const handleReset = async (ctx: any) => {
-      const chatId = String(ctx.chat.id);
-      console.log(
-        `[Telegram] /reset command from ${ctx.from?.id} — clearing history.`,
-      );
-
-      await ctx.replyWithChatAction("typing");
-
-      try {
-        await clearChatHistory(chatId);
-        resetSessionStats(chatId);
+      // File size limit (20 MB Telegram limit, but cap text extraction at 1 MB)
+      if (doc.file_size && doc.file_size > 1_000_000) {
         await this.sendReply(
           ctx.chat.id,
-          "🔄 History cleared and session reset.\n\nHow can I help you today?",
+          "📄 File too large (max 1 MB for text extraction). Try a smaller file or paste the key sections as text.",
         );
-      } catch (error) {
-        console.error("[Telegram] /reset error:", error);
-        await ctx.reply(friendlyError(error, "resetting session"));
+        return;
       }
-    };
 
-    this.bot.command("new", handleReset);
-    this.bot.command("reset", handleReset);
-
-    // /status — display session token consumption and stats
-    this.bot.command("status", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      console.log(`[Telegram] /status command from ${ctx.from?.id}`);
+      console.log(`[Telegram] Received document "${fileName}" from ${ctx.from.id}`);
 
       await ctx.replyWithChatAction("typing");
+      const typingInterval = setInterval(() => {
+        ctx.replyWithChatAction("typing").catch(() => { });
+      }, 4000);
 
       try {
-        const messageCount = await getMessageCount(chatId);
-        const statusText = formatSessionStatus(chatId, messageCount);
-        await this.sendReply(ctx.chat.id, statusText);
-      } catch (error) {
-        console.error("[Telegram] /status error:", error);
-        await ctx.reply(friendlyError(error, "fetching status"));
-      }
-    });
+        // Download file from Telegram
+        const file = await ctx.api.getFile(doc.file_id);
+        const fileUrl = `https://api.telegram.org/file/bot${ENV.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+        const response = await fetch(fileUrl);
 
-    // /compact — summarize conversation history to reduce tokens
-    this.bot.command("compact", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      console.log(
-        `[Telegram] /compact command from ${ctx.from?.id} — compacting history.`,
-      );
+        if (!response.ok) {
+          clearInterval(typingInterval);
+          await ctx.reply("Failed to download the file from Telegram.");
+          return;
+        }
 
-      await ctx.replyWithChatAction("typing");
+        const buffer = Buffer.from(await response.arrayBuffer());
+        let extractedText: string;
 
-      try {
-        const result = await compactChatHistory(chatId);
+        if (isPdf) {
+          // Basic PDF text extraction — parse text between stream/endstream markers
+          // For a full-featured solution, add pdf-parse dependency
+          const raw = buffer.toString("utf-8");
+          // Extract readable text segments (skip binary garbage)
+          extractedText = raw
+            .split("\n")
+            .filter((line) => {
+              // Keep lines that are mostly printable ASCII
+              const printable = line.replace(/[^\x20-\x7E]/g, "");
+              return printable.length > line.length * 0.6 && printable.length > 10;
+            })
+            .join("\n")
+            .trim();
+
+          if (!extractedText || extractedText.length < 50) {
+            clearInterval(typingInterval);
+            await this.sendReply(
+              ctx.chat.id,
+              "📄 Could not extract readable text from this PDF. It may be scanned/image-based. Try sending it as an image instead.",
+            );
+            return;
+          }
+        } else {
+          // Text-based files — direct decode
+          extractedText = buffer.toString("utf-8");
+        }
+
+        // Truncate very long documents to avoid blowing up context
+        const MAX_DOC_CHARS = 50_000;
+        if (extractedText.length > MAX_DOC_CHARS) {
+          extractedText = extractedText.substring(0, MAX_DOC_CHARS) +
+            `\n\n[... truncated — showing first ${MAX_DOC_CHARS.toLocaleString()} characters of ${extractedText.length.toLocaleString()} total]`;
+        }
+
+        const prompt = caption
+          ? `${caption}\n\n---\n📄 File: ${fileName}\n\n${extractedText}`
+          : `The user sent a file. Read, analyze, and summarize the key contents.\n\n---\n📄 File: ${fileName}\n\n${extractedText}`;
+
+        const incoming: IncomingMessage = {
+          chatId,
+          userId,
+          text: prompt,
+          documentText: extractedText,
+        };
+
+        const result = await this.handler(incoming);
+        clearInterval(typingInterval);
         await this.sendReply(ctx.chat.id, result);
       } catch (error) {
-        console.error("[Telegram] /compact error:", error);
-        await ctx.reply(friendlyError(error, "compacting history"));
-      }
-    });
-
-    // /heartbeat — show current heartbeat status
-    this.bot.command("heartbeat", async (ctx) => {
-      const status = getHeartbeatStatus();
-      await this.sendReply(ctx.chat.id, status);
-    });
-
-    // /heartbeat_set — change the morning check-in time
-    this.bot.command("heartbeat_set", async (ctx) => {
-      const args = ctx.match?.trim();
-
-      if (!args) {
-        await ctx.reply(
-          "Usage: /heartbeat\\_set HH:MM\nExample: /heartbeat\\_set 09:30",
-        );
-        return;
-      }
-
-      const timeMatch = args.match(/^(\d{1,2}):(\d{2})$/);
-      if (!timeMatch) {
-        await ctx.reply(
-          "Invalid format. Use HH:MM (24-hour IST).\nExample: /heartbeat\\_set 09:30",
-        );
-        return;
-      }
-
-      const hour = parseInt(timeMatch[1], 10);
-      const minute = parseInt(timeMatch[2], 10);
-
-      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-        await ctx.reply("Invalid time. Hour: 0-23, Minute: 0-59.");
-        return;
-      }
-
-      const updated = updateHeartbeatTime("Morning Check-in", hour, minute);
-      if (updated) {
-        const timeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-        await this.sendReply(
-          ctx.chat.id,
-          `✅ Morning check-in updated to **${timeStr} IST**.`,
-        );
-      } else {
-        await ctx.reply(
-          "Could not find the Morning Check-in job. Is the heartbeat scheduler running?",
-        );
+        clearInterval(typingInterval);
+        console.error("[Telegram] Document handling error:", error);
+        await ctx.reply(friendlyError(error, "processing the document"));
       }
     });
 
@@ -306,7 +301,7 @@ export class TelegramChannel implements Channel {
         const base64 = buffer.toString("base64");
 
         // Determine MIME type from file extension
-        const ext = file.file_path?.split(".").pop()?.toLowerCase() || "jpg";
+        const imgExt = file.file_path?.split(".").pop()?.toLowerCase() || "jpg";
         const mimeMap: Record<string, string> = {
           jpg: "image/jpeg",
           jpeg: "image/jpeg",
@@ -314,7 +309,7 @@ export class TelegramChannel implements Channel {
           gif: "image/gif",
           webp: "image/webp",
         };
-        const mimeType = mimeMap[ext] || "image/jpeg";
+        const mimeType = mimeMap[imgExt] || "image/jpeg";
 
         const incoming: IncomingMessage = {
           chatId,
@@ -335,6 +330,8 @@ export class TelegramChannel implements Channel {
     });
 
     // ── Text messages ───────────────────────────────────────────
+    // All commands are handled centrally in slash-commands.ts via
+    // the message handler. No command parsing here.
 
     this.bot.on("message:text", async (ctx) => {
       if (!this.handler) return;
@@ -372,7 +369,7 @@ export class TelegramChannel implements Channel {
 
     this.bot.on("message", async (ctx) => {
       await ctx.reply(
-        "I can only handle text messages and photos right now. Send me text or a photo and I'll get to work.",
+        "I can handle text messages, photos, and documents (PDF, TXT, code files, etc.). Send me one of those and I'll get to work.",
       );
     });
 

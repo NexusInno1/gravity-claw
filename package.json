@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "npx tsx src/index.ts",
-    "dev": "node --import tsx src/index.ts"
+    "dev": "node --import tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
@@ -21,6 +23,7 @@
   "devDependencies": {
     "@types/node": "^22.5.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.0"
   }
 }

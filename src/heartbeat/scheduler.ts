@@ -76,23 +76,31 @@ export function updateHeartbeatTime(
 }
 
 /**
- * Get the current date and time in IST.
+ * Get the current date and time in IST using Intl.DateTimeFormat.
+ * This is reliable across Node.js versions and Docker environments
+ * (unlike parsing toLocaleString which is locale-dependent).
  */
 function getISTNow(): { hour: number; minute: number; dateKey: string } {
   const now = new Date();
-  const istString = now.toLocaleString("en-US", {
-    timeZone: "Asia/Kolkata",
-    hour12: false,
-  });
-  const istDate = new Date(istString);
 
-  // Date key to track "already ran today"
-  const dateKey = now.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }); // YYYY-MM-DD
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  const parts = Object.fromEntries(
+    fmt.formatToParts(now).map((p) => [p.type, p.value]),
+  );
 
   return {
-    hour: istDate.getHours(),
-    minute: istDate.getMinutes(),
-    dateKey,
+    hour: parseInt(parts.hour, 10),
+    minute: parseInt(parts.minute, 10),
+    dateKey: `${parts.year}-${parts.month}-${parts.day}`,
   };
 }
 

@@ -10,6 +10,7 @@ import { runAgentLoop, runAgentLoopWithImage } from "./agent/loop.js";
 import { mcpManager } from "./mcp/mcp-manager.js";
 import { handleSlashCommand, getEffectiveModel } from "./commands/slash-commands.js";
 import { getProviderName } from "./lib/router.js";
+import { startWebhookServer, stopWebhookServer } from "./channels/webhook.js";
 
 console.log("============== Gravity Claw ==============");
 console.log("Initializing secure local environment...");
@@ -57,8 +58,7 @@ async function start() {
 
     // ── Optional model footer ─────────────────────────────────────
     // Set SHOW_MODEL_FOOTER=false in .env to disable
-    const showFooter = (process.env.SHOW_MODEL_FOOTER ?? "true") !== "false";
-    if (showFooter && response && !response.startsWith("Error:")) {
+    if (ENV.SHOW_MODEL_FOOTER && response && !response.startsWith("Error:")) {
       const model = getEffectiveModel(msg.chatId);
       const provider = getProviderName(model);
       // Truncate long model names (e.g. openrouter full paths)
@@ -87,6 +87,20 @@ async function start() {
         "[Heartbeat] No HEARTBEAT_CHAT_ID set — scheduler disabled.",
       );
     }
+
+    // Start webhook server if configured
+    if (ENV.WEBHOOK_SECRET && ENV.HEARTBEAT_CHAT_ID) {
+      startWebhookServer({
+        port: ENV.WEBHOOK_PORT,
+        token: ENV.WEBHOOK_SECRET,
+        chatId: ENV.HEARTBEAT_CHAT_ID,
+        bot: telegram.getBot(),
+      });
+    } else if (ENV.WEBHOOK_SECRET && !ENV.HEARTBEAT_CHAT_ID) {
+      console.warn(
+        "[Webhook] WEBHOOK_SECRET set but no HEARTBEAT_CHAT_ID — webhook disabled.",
+      );
+    }
   }
 
   // ── Discord Channel ────────────────────────────────────────────
@@ -110,6 +124,7 @@ async function start() {
   const shutdown = () => {
     console.log("🔴 Gravity Claw shutdown signal received — cleaning up...");
     stopHeartbeat();
+    stopWebhookServer();
     mcpManager.shutdown().catch(() => { });
     for (const channel of activeChannels) {
       channel.stop();

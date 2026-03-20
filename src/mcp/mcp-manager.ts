@@ -17,6 +17,8 @@ interface McpConfig {
 
 class McpManager {
   private clients: Map<string, McpClient> = new Map();
+  /** Maps prefixed tool name → { serverName, toolName } for reliable routing */
+  private toolNameMap: Map<string, { serverName: string; toolName: string }> = new Map();
   private initialized = false;
 
   /**
@@ -70,12 +72,30 @@ class McpManager {
 
   /**
    * Get all MCP tools as Gemini Tool[] for injection into the agent loop.
+   * Also builds the toolNameMap for reliable name → (server, tool) resolution.
    */
   getAllMcpTools(): GeminiTool[] {
     const tools: GeminiTool[] = [];
-    for (const client of this.clients.values()) {
-      if (client.isConnected()) {
-        tools.push(...client.toGeminiTools());
+    this.toolNameMap.clear();
+
+    for (const [serverName, client] of this.clients.entries()) {
+      if (!client.isConnected()) continue;
+
+      const geminiTools = client.toGeminiTools();
+      tools.push(...geminiTools);
+
+      // Build the reverse lookup map from prefixed names
+      for (const tool of geminiTools) {
+        if (!tool.functionDeclarations) continue;
+        for (const decl of tool.functionDeclarations) {
+          const prefixedName = decl.name!;
+          // The original tool name is the prefixed name minus "mcp_{serverName}_"
+          const prefix = `mcp_${serverName}_`;
+          const originalName = prefixedName.startsWith(prefix)
+            ? prefixedName.substring(prefix.length)
+            : prefixedName;
+          this.toolNameMap.set(prefixedName, { serverName, toolName: originalName });
+        }
       }
     }
     return tools;
@@ -83,29 +103,25 @@ class McpManager {
 
   /**
    * Execute an MCP tool call.
-   * Tool names come in as "mcp_{serverName}_{toolName}" from the agent loop.
+   * Uses the toolNameMap for reliable routing (handles underscores in names).
    */
   async executeMcpTool(
     prefixedName: string,
     args: Record<string, unknown>,
   ): Promise<string> {
-    // Parse the prefixed name: "mcp_{serverName}_{toolName}"
-    const withoutPrefix = prefixedName.replace(/^mcp_/, "");
-    const underscoreIndex = withoutPrefix.indexOf("_");
+    // Look up from the name map (populated by getAllMcpTools)
+    const mapping = this.toolNameMap.get(prefixedName);
 
-    if (underscoreIndex === -1) {
-      return `Error: Invalid MCP tool name format: ${prefixedName}`;
+    if (!mapping) {
+      return `Error: Unknown MCP tool "${prefixedName}". Was it discovered by getAllMcpTools()?`;
     }
 
-    const serverName = withoutPrefix.substring(0, underscoreIndex);
-    const toolName = withoutPrefix.substring(underscoreIndex + 1);
-
-    const client = this.clients.get(serverName);
+    const client = this.clients.get(mapping.serverName);
     if (!client) {
-      return `Error: MCP server "${serverName}" not found or not connected.`;
+      return `Error: MCP server "${mapping.serverName}" not found or not connected.`;
     }
 
-    return client.executeTool(toolName, args);
+    return client.executeTool(mapping.toolName, args);
   }
 
   /**

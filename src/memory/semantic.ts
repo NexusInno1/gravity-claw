@@ -16,7 +16,7 @@
  */
 
 import { getSupabase } from "../lib/supabase.js";
-import { GoogleGenAI } from "@google/genai";
+import { getAI } from "../lib/gemini.js";
 import { routedChat } from "../lib/router.js";
 import { ENV } from "../config.js";
 
@@ -29,8 +29,7 @@ import { ENV } from "../config.js";
  */
 async function embed(text: string): Promise<number[] | null> {
   try {
-    const keys = ENV.GEMINI_API_KEYS;
-    const ai = new GoogleGenAI({ apiKey: keys[0] });
+    const ai = getAI();
 
     const result = await ai.models.embedContent({
       model: "gemini-embedding-001",

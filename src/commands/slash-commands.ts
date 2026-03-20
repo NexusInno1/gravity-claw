@@ -1,16 +1,22 @@
 /**
- * Slash Command System
+ * Slash Command System — Single Source of Truth
  *
- * Parses incoming messages for slash commands and handles them
- * locally — before the message ever reaches the LLM. This keeps
- * latency close to zero and avoids burning tokens on housekeeping.
+ * ALL slash commands are handled here. Channel adapters (Telegram, Discord)
+ * call handleSlashCommand() and only deal with sending the result.
+ * This ensures every command works on every channel without duplication.
  *
  * Supported commands:
- *   /status   — session stats: uptime, message count, token usage
+ *   /start    — alias for /new
  *   /new      — clear conversation history and reset session stats
+ *   /reset    — alias for /new
+ *   /status   — session stats: uptime, message count, token usage
+ *   /usage    — focused token breakdown
  *   /compact  — manually compact buffer into a rolling summary
  *   /model    — show active model, or switch it for this session
- *   /usage    — focused token breakdown (alias of /status)
+ *   /heartbeat     — show heartbeat scheduler status
+ *   /heartbeat_set — change morning check-in time
+ *   /agents   — list available sub-agents
+ *   /pin      — save something to permanent core memory
  *   /help     — list all available commands
  */
 
@@ -28,6 +34,11 @@ import {
   compactChatHistory,
   getMessageCount,
 } from "../memory/buffer.js";
+import { setCoreMemory } from "../memory/core.js";
+import {
+  getHeartbeatStatus,
+  updateHeartbeatTime,
+} from "../heartbeat/scheduler.js";
 
 // ─── Per-session Model Override ───────────────────────────────────
 
@@ -48,7 +59,7 @@ export function getEffectiveModel(chatId: string): string {
 /**
  * Clear any model override for a chat (called on /new).
  */
-function clearModelOverride(chatId: string): void {
+export function clearModelOverride(chatId: string): void {
   sessionModelOverrides.delete(chatId);
 }
 
@@ -126,14 +137,16 @@ export async function handleSlashCommand(
   const args = parts.slice(1);
 
   switch (command) {
+    case "/start":
+    case "/new":
+    case "/reset":
+      return handleNew(chatId);
+
     case "/status":
       return handleStatus(chatId);
 
     case "/usage":
       return handleUsage(chatId);
-
-    case "/new":
-      return handleNew(chatId);
 
     case "/compact":
       return handleCompact(chatId);
@@ -141,11 +154,20 @@ export async function handleSlashCommand(
     case "/model":
       return handleModel(chatId, args);
 
-    case "/help":
-      return handleHelp();
+    case "/heartbeat":
+      return handleHeartbeat();
+
+    case "/heartbeat_set":
+      return handleHeartbeatSet(args);
 
     case "/agents":
       return handleAgents();
+
+    case "/pin":
+      return handlePin(chatId, args);
+
+    case "/help":
+      return handleHelp();
 
     default:
       // Unknown slash command — let the LLM handle it naturally
@@ -257,16 +279,65 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
   };
 }
 
+function handleHeartbeat(): SlashCommandResult {
+  const status = getHeartbeatStatus();
+  return { handled: true, response: status };
+}
+
+function handleHeartbeatSet(args: string[]): SlashCommandResult {
+  if (args.length === 0) {
+    return {
+      handled: true,
+      response: "Usage: `/heartbeat_set HH:MM`\nExample: `/heartbeat_set 09:30`",
+    };
+  }
+
+  const timeMatch = args[0].match(/^(\d{1,2}):(\d{2})$/);
+  if (!timeMatch) {
+    return {
+      handled: true,
+      response: "Invalid format. Use HH:MM (24-hour IST).\nExample: `/heartbeat_set 09:30`",
+    };
+  }
+
+  const hour = parseInt(timeMatch[1], 10);
+  const minute = parseInt(timeMatch[2], 10);
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return {
+      handled: true,
+      response: "Invalid time. Hour: 0-23, Minute: 0-59.",
+    };
+  }
+
+  const updated = updateHeartbeatTime("Morning Check-in", hour, minute);
+  if (updated) {
+    const timeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    return {
+      handled: true,
+      response: `✅ Morning check-in updated to **${timeStr} IST**.`,
+    };
+  } else {
+    return {
+      handled: true,
+      response: "Could not find the Morning Check-in job. Is the heartbeat scheduler running?",
+    };
+  }
+}
+
 function handleHelp(): SlashCommandResult {
   const response = [
     "⚡ **Slash Commands**\n",
-    "`/status`   — Session stats: uptime, token usage, buffer size",
-    "`/usage`    — Focused token consumption breakdown",
-    "`/new`      — Start fresh: clear history, reset stats & model override",
-    "`/compact`  — Compress current buffer into a rolling summary",
-    "`/model`    — Show active model or switch it for this session",
-    "`/agents`   — List available sub-agents for delegation",
-    "`/help`     — Show this message",
+    "`/status`          — Session stats: uptime, token usage, buffer size",
+    "`/usage`           — Focused token consumption breakdown",
+    "`/new`             — Start fresh: clear history, reset stats & model override",
+    "`/compact`         — Compress current buffer into a rolling summary",
+    "`/model`           — Show active model or switch it for this session",
+    "`/heartbeat`       — Show heartbeat scheduler status",
+    "`/heartbeat_set`   — Change morning check-in time (e.g. `/heartbeat_set 09:30`)",
+    "`/agents`          — List available sub-agents for delegation",
+    "`/pin`             — Save something to permanent core memory",
+    "`/help`            — Show this message",
     "",
     "_Commands are processed locally and never sent to the LLM._",
   ].join("\n");
@@ -274,43 +345,94 @@ function handleHelp(): SlashCommandResult {
   return { handled: true, response };
 }
 
+async function handlePin(chatId: string, args: string[]): Promise<SlashCommandResult> {
+  if (args.length === 0) {
+    return {
+      handled: true,
+      response: [
+        "📌 **Pin to Memory**\n",
+        "Save anything to permanent core memory.\n",
+        "**Usage:**",
+        "`/pin <key> <value>` — Save with a specific key",
+        "`/pin <value>`       — Auto-generate a key (pin_1, pin_2, ...)",
+        "",
+        "**Examples:**",
+        "`/pin api_key My API key is in .env.local`",
+        "`/pin Buy groceries on Sunday`",
+      ].join("\n"),
+    };
+  }
+
+  let key: string;
+  let value: string;
+
+  // If first arg looks like a key (no spaces, short), use it as the key
+  if (args.length >= 2 && !args[0].includes(" ") && args[0].length <= 30) {
+    key = `pin_${args[0]}`;
+    value = args.slice(1).join(" ");
+  } else {
+    // Auto-generate key with timestamp
+    key = `pin_${Date.now()}`;
+    value = args.join(" ");
+  }
+
+  try {
+    await setCoreMemory(key, value);
+    return {
+      handled: true,
+      response: `📌 **Pinned to core memory.**\n\n🔑 \`${key}\`\n📝 ${value}`,
+    };
+  } catch (err) {
+    return {
+      handled: true,
+      response: `❌ Failed to pin: ${String(err)}`,
+    };
+  }
+}
+
 function handleAgents(): SlashCommandResult {
-  const lines = [
-    "🤖 **Available Sub-Agents**\n",
-    "The main agent can delegate complex tasks to specialized sub-agents.",
-    "Just ask naturally — Gravity Claw decides when to delegate.\n",
-  ];
+  const agentLines: string[] = [];
 
   for (const profile of Object.values(PROFILES)) {
-    lines.push(
-      `${profile.icon} **${profile.label}** (\`${profile.name}\`)`,
-    );
-    // Extract first sentence of system prompt as description
-    const firstLine = profile.systemPrompt
+    // Pull the first meaningful description line from the system prompt
+    const description = profile.systemPrompt
       .split("\n")
-      .find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("You are"));
-    if (firstLine) {
-      lines.push(`   ${firstLine.trim()}`);
-    }
+      .find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("You are"))
+      ?.trim() ?? "";
+
     const toolInfo = profile.allowedTools
-      ? `Tools: ${profile.allowedTools.join(", ")}`
+      ? profile.allowedTools.join(", ")
       : profile.deniedTools
         ? `All tools except: ${profile.deniedTools.join(", ")}`
         : "All tools";
-    lines.push(
-      `   _${toolInfo} · temp=${profile.temperature} · max ${profile.maxIterations} iterations_`,
+
+    agentLines.push(
+      `${profile.icon} **${profile.label}** — \`${profile.name}\``,
+      `> ${description}`,
+      `> 🛠 ${toolInfo}`,
+      `> ⚙️ temp \`${profile.temperature}\` · max \`${profile.maxIterations}\` iterations`,
+      "",
     );
-    lines.push("");
   }
 
-  lines.push(
-    "**Examples:**",
-    '  _"Research the latest React 19 features in depth"_ → 🔬 Research Agent',
-    '  _"Write a Python script to parse CSV files"_ → 💻 Code Agent',
-    '  _"Summarize this article: [url]"_ → 📋 Summary Agent',
-    '  _"Write a poem about space exploration"_ → 🎨 Creative Agent',
-    '  _"Compare AWS vs GCP for a startup"_ → 📊 Analysis Agent',
-  );
+  const response = [
+    "🤖 **Sub-Agent Directory**\n",
+    "Gravity Claw automatically delegates to the right specialist.",
+    "You don't need to invoke agents manually — just ask naturally.\n",
+    "───────────────────────────",
+    "",
+    ...agentLines,
+    "───────────────────────────",
+    "",
+    "**When to use each agent:**",
+    "🔬 Research  → Deep dives, fact-checking, news, documentation",
+    "💻 Code      → Write, review, debug, or explain code",
+    "📋 Summary   → Condense articles, docs, or long content",
+    "🎨 Creative  → Stories, poems, copy, or any creative writing",
+    "📊 Analysis  → Compare options, spot patterns, make recommendations",
+    "",
+    "_Tasks are matched to the best agent automatically._",
+  ].join("\n");
 
-  return { handled: true, response: lines.join("\n") };
+  return { handled: true, response };
 }

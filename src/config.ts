@@ -105,4 +105,7 @@ export const ENV = {
   SERPER_API_KEY: serperApiKey,
   OPENROUTER_API_KEY: openrouterApiKey,
   OPENROUTER_MODEL: openrouterModel,
+  WEBHOOK_PORT: parseInt(process.env.WEBHOOK_PORT || "3100", 10),
+  WEBHOOK_SECRET: process.env.WEBHOOK_SECRET || "",
+  SHOW_MODEL_FOOTER: (process.env.SHOW_MODEL_FOOTER ?? "true") !== "false",
 };

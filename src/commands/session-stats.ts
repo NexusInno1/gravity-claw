@@ -261,7 +261,7 @@ export function resetSessionStats(chatId: string): void {
  * Format a cost value to a sensible number of decimal places.
  * Shows 4 decimal places for small values to avoid showing "$0.0000".
  */
-function formatCost(usd: number): string {
+export function formatCost(usd: number): string {
     if (usd === 0) return "$0.00";
     if (usd < 0.0001) return `$${usd.toFixed(8)}`;
     if (usd < 0.01) return `$${usd.toFixed(5)}`;

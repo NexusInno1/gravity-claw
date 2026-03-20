@@ -20,6 +20,8 @@ export interface IncomingMessage {
   imageBase64?: string;
   /** MIME type of the image (e.g. "image/jpeg") */
   imageMimeType?: string;
+  /** Extracted text from an uploaded document (PDF, TXT, MD, etc.) */
+  documentText?: string;
 }
 
 /**

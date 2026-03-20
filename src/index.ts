@@ -8,7 +8,8 @@ import { heartbeatJobs } from "./heartbeat/jobs.js";
 import type { IncomingMessage, Channel } from "./channels/types.js";
 import { runAgentLoop, runAgentLoopWithImage } from "./agent/loop.js";
 import { mcpManager } from "./mcp/mcp-manager.js";
-import { handleSlashCommand } from "./commands/slash-commands.js";
+import { handleSlashCommand, getEffectiveModel } from "./commands/slash-commands.js";
+import { getProviderName } from "./lib/router.js";
 
 console.log("============== Gravity Claw ==============");
 console.log("Initializing secure local environment...");
@@ -37,18 +38,35 @@ async function start() {
       const slashResult = await handleSlashCommand(msg.text, msg.chatId);
       if (slashResult.handled) {
         return slashResult.response ?? "";
+        // Note: no model footer on slash commands — they're local, no LLM used
       }
     }
 
+    // ── LLM response path ────────────────────────────────────────
+    let response: string;
     if (msg.imageBase64 && msg.imageMimeType) {
-      return runAgentLoopWithImage(
+      response = await runAgentLoopWithImage(
         msg.text || "What's in this image? Describe and analyze it.",
         msg.chatId,
         msg.imageBase64,
         msg.imageMimeType,
       );
+    } else {
+      response = await runAgentLoop(msg.text || "", msg.chatId);
     }
-    return runAgentLoop(msg.text || "", msg.chatId);
+
+    // ── Optional model footer ─────────────────────────────────────
+    // Set SHOW_MODEL_FOOTER=false in .env to disable
+    const showFooter = (process.env.SHOW_MODEL_FOOTER ?? "true") !== "false";
+    if (showFooter && response && !response.startsWith("Error:")) {
+      const model = getEffectiveModel(msg.chatId);
+      const provider = getProviderName(model);
+      // Truncate long model names (e.g. openrouter full paths)
+      const displayModel = model.includes("/") ? model.split("/").pop()! : model;
+      response = `${response}\n\n\`✦ ${displayModel} · ${provider}\``;
+    }
+
+    return response;
   };
 
   // Track active channels for shutdown

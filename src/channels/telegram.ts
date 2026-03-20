@@ -21,6 +21,35 @@ import {
 } from "../heartbeat/scheduler.js";
 import type { Channel, MessageHandler, IncomingMessage } from "./types.js";
 
+/**
+ * Convert a raw Error into a clean, user-facing message.
+ * Never leaks stack traces or internal paths.
+ */
+function friendlyError(error: unknown, context: string): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  const lower = msg.toLowerCase();
+
+  if (lower.includes("429") || lower.includes("quota") || lower.includes("rate limit")) {
+    return "⚠️ The AI is under heavy load right now. All API keys are busy — try again in a moment.";
+  }
+  if (lower.includes("401") || lower.includes("unauthorized") || lower.includes("api key")) {
+    return "🔑 API authentication issue. Check your API keys in the config.";
+  }
+  if (lower.includes("timeout") || lower.includes("etimedout") || lower.includes("econnreset")) {
+    return "⏱️ The request timed out. The server might be slow — please try again.";
+  }
+  if (lower.includes("network") || lower.includes("enotfound") || lower.includes("econnrefused")) {
+    return "📡 Network error. Check your internet connection and try again.";
+  }
+  if (lower.includes("supabase") || lower.includes("postgres")) {
+    return "🗄️ Database error. Memory features may be temporarily unavailable.";
+  }
+
+  // Generic fallback — show context but not the raw error
+  console.error(`[Telegram] ${context} error:`, error);
+  return `❌ Something went wrong during ${context}. The issue has been logged.`;
+}
+
 const TELEGRAM_MAX_LENGTH = 4096;
 
 /**
@@ -126,7 +155,7 @@ export class TelegramChannel implements Channel {
         );
       } catch (error) {
         console.error("[Telegram] /start error:", error);
-        await ctx.reply("System error while clearing history. Check logs.");
+        await ctx.reply(friendlyError(error, "clearing history"));
       }
     });
 
@@ -149,7 +178,7 @@ export class TelegramChannel implements Channel {
         );
       } catch (error) {
         console.error("[Telegram] /reset error:", error);
-        await ctx.reply("System error while clearing history. Check logs.");
+        await ctx.reply(friendlyError(error, "resetting session"));
       }
     };
 
@@ -169,7 +198,7 @@ export class TelegramChannel implements Channel {
         await this.sendReply(ctx.chat.id, statusText);
       } catch (error) {
         console.error("[Telegram] /status error:", error);
-        await ctx.reply("System error while fetching status. Check logs.");
+        await ctx.reply(friendlyError(error, "fetching status"));
       }
     });
 
@@ -187,7 +216,7 @@ export class TelegramChannel implements Channel {
         await this.sendReply(ctx.chat.id, result);
       } catch (error) {
         console.error("[Telegram] /compact error:", error);
-        await ctx.reply("System error during compaction. Check logs.");
+        await ctx.reply(friendlyError(error, "compacting history"));
       }
     });
 
@@ -301,7 +330,7 @@ export class TelegramChannel implements Channel {
       } catch (error) {
         clearInterval(typingInterval);
         console.error("[Telegram] Photo handling error:", error);
-        await ctx.reply("Error processing the image. Check logs.");
+        await ctx.reply(friendlyError(error, "processing the image"));
       }
     });
 
@@ -335,7 +364,7 @@ export class TelegramChannel implements Channel {
       } catch (error) {
         clearInterval(typingInterval);
         console.error("[Telegram] Error:", error);
-        await ctx.reply("System error occurred. Check logs.");
+        await ctx.reply(friendlyError(error, "processing your message"));
       }
     });
 

@@ -286,14 +286,16 @@ export function formatDuration(ms: number): string {
  */
 export function formatSessionStatus(chatId: string, messageCount: number): string {
     const stats = getSessionStats(chatId);
-    const uptime = formatDuration(Date.now() - stats.sessionStartedAt.getTime());
+    const sessionUptime = formatDuration(Date.now() - stats.sessionStartedAt.getTime());
+    const processUptime = formatDuration(Math.round(process.uptime() * 1000));
     const avgLatency = stats.requestCount > 0
         ? `${Math.round(stats.totalLatencyMs / stats.requestCount).toLocaleString()} ms`
         : "—";
 
     const lines = [
         "📊 **Session Status**\n",
-        `⏱️ **Session Duration:**   ${uptime}`,
+        `🤖 **Bot Uptime:**         ${processUptime}`,
+        `⏱️ **Session Duration:**   ${sessionUptime}`,
         `💬 **Messages in Buffer:** ${messageCount}`,
         `🔢 **LLM Requests:**       ${stats.requestCount}`,
         `⚡ **Avg Latency:**         ${avgLatency}`,

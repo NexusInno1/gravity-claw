@@ -75,6 +75,9 @@ import { mcpManager } from "../mcp/mcp-manager.js";
 // Session stats tracking
 import { recordTokenUsage } from "../commands/session-stats.js";
 
+// Slash commands — model override
+import { getEffectiveModel } from "../commands/slash-commands.js";
+
 const MAX_ITERATIONS = 5;
 
 // ─── Soul + Skills (loaded once at startup) ──────────────────────
@@ -327,10 +330,12 @@ export async function runAgentLoop(
     console.log(`[Agent] Iteration ${iterationCount}/${iterLimit}`);
 
     // Ask LLM with full context (Gemini primary, OpenRouter fallback)
+    const activeModel = getEffectiveModel(chatId);
+    const llmStart = Date.now();
     const response = await withRetry(
       () =>
         getAI().models.generateContent({
-          model: ENV.GEMINI_MODEL,
+          model: activeModel,
           contents,
           config: {
             tools: availableTools,
@@ -345,15 +350,18 @@ export async function runAgentLoop(
         temperature: 0.7,
       },
     );
+    const llmLatencyMs = Date.now() - llmStart;
 
-    // Track token usage from the response
+    // Track token usage, cost and latency from the response
     const usage = (response as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } }).usageMetadata;
     if (usage) {
       recordTokenUsage(
         chatId,
+        activeModel,
         usage.promptTokenCount || 0,
         usage.candidatesTokenCount || 0,
         usage.totalTokenCount || 0,
+        llmLatencyMs,
       );
     }
     if (!response.candidates || response.candidates.length === 0) {
@@ -476,10 +484,12 @@ export async function runAgentLoopWithImage(
     iterationCount++;
     console.log(`[Agent/Vision] Iteration ${iterationCount}/${MAX_ITERATIONS}`);
 
+    const activeVisionModel = getEffectiveModel(chatId);
+    const visionStart = Date.now();
     const response = await withRetry(
       () =>
         getAI().models.generateContent({
-          model: ENV.GEMINI_MODEL,
+          model: activeVisionModel,
           contents,
           config: {
             tools: availableTools,
@@ -494,15 +504,18 @@ export async function runAgentLoopWithImage(
         temperature: 0.7,
       },
     );
+    const visionLatencyMs = Date.now() - visionStart;
 
-    // Track token usage from the response
+    // Track token usage, cost and latency from the response
     const visionUsage = (response as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } }).usageMetadata;
     if (visionUsage) {
       recordTokenUsage(
         chatId,
+        activeVisionModel,
         visionUsage.promptTokenCount || 0,
         visionUsage.candidatesTokenCount || 0,
         visionUsage.totalTokenCount || 0,
+        visionLatencyMs,
       );
     }
 

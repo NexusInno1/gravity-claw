@@ -8,6 +8,7 @@ import { heartbeatJobs } from "./heartbeat/jobs.js";
 import type { IncomingMessage, Channel } from "./channels/types.js";
 import { runAgentLoop, runAgentLoopWithImage } from "./agent/loop.js";
 import { mcpManager } from "./mcp/mcp-manager.js";
+import { handleSlashCommand } from "./commands/slash-commands.js";
 
 console.log("============== Gravity Claw ==============");
 console.log("Initializing secure local environment...");
@@ -31,6 +32,14 @@ async function start() {
 
   // Shared message handler for all channels
   const messageHandler = async (msg: IncomingMessage): Promise<string> => {
+    // ── Slash command interception (zero token cost) ──────────────
+    if (msg.text) {
+      const slashResult = await handleSlashCommand(msg.text, msg.chatId);
+      if (slashResult.handled) {
+        return slashResult.response ?? "";
+      }
+    }
+
     if (msg.imageBase64 && msg.imageMimeType) {
       return runAgentLoopWithImage(
         msg.text || "What's in this image? Describe and analyze it.",

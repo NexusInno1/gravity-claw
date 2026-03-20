@@ -1,10 +1,13 @@
 # Dependencies
 node_modules/
 
-# Environment variables
+# Environment variables — NEVER commit these
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+*.env
 
 # Database files
 *.db
@@ -19,13 +22,25 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Logs
+# Logs — can contain user messages, tool outputs, API responses
 *.log
+logs/
 npm-debug.log*
 
 # Build output
 dist/
 .next/
 
-# Mission control (local only, not deployed)
+# Mission Control (local only — contains hardcoded Supabase credentials in config.js)
 mission-control/
+
+# Any secrets/credential files
+secrets.json
+credentials.json
+service-account.json
+*private*.json
+*secret*.json
+
+# Session data and runtime files
+*.session
+sessions/

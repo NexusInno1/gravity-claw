@@ -77,6 +77,14 @@ if (!serperApiKey) {
   );
 }
 
+// Apify (optional — used for job search scraping)
+const apifyApiToken = process.env.APIFY_API_TOKEN || "";
+if (!apifyApiToken) {
+  console.warn(
+    "[Config] APIFY_API_TOKEN missing — apify_job_search tool will be unavailable.",
+  );
+}
+
 // OpenRouter (optional — used as fallback when Gemini keys are exhausted)
 const openrouterApiKey = process.env.OPENROUTER_API_KEY || "";
 const openrouterModel =
@@ -103,6 +111,7 @@ export const ENV = {
   SUPABASE_SERVICE_ROLE_KEY: supabaseKey,
   TAVILY_API_KEY: tavilyApiKey,
   SERPER_API_KEY: serperApiKey,
+  APIFY_API_TOKEN: apifyApiToken,
   OPENROUTER_API_KEY: openrouterApiKey,
   OPENROUTER_MODEL: openrouterModel,
   WEBHOOK_PORT: parseInt(process.env.WEBHOOK_PORT || "3100", 10),

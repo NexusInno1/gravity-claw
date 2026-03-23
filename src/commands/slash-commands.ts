@@ -430,6 +430,7 @@ function handleAgents(): SlashCommandResult {
     "📋 Summary   → Condense articles, docs, or long content",
     "🎨 Creative  → Stories, poems, copy, or any creative writing",
     "📊 Analysis  → Compare options, spot patterns, make recommendations",
+    "💼 Jobs      → Find real job listings via Apify (LinkedIn, Indeed, Naukri)",
     "",
     "_Tasks are matched to the best agent automatically._",
   ].join("\n");

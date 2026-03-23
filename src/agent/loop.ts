@@ -77,6 +77,10 @@ import {
   delegateDefinition,
   executeDelegate,
 } from "../tools/delegate.js";
+import {
+  apifyJobSearchDefinition,
+  executeApifyJobSearch,
+} from "../tools/apify_job_search.js";
 
 // Memory tiers
 import { buildCoreMemoryPrompt, getCoreMemory } from "../memory/core.js";
@@ -166,6 +170,21 @@ registerTool({
       chatId,
     ),
 });
+registerTool({
+  name: "apify_job_search",
+  definition: apifyJobSearchDefinition,
+  executor: async (args) =>
+    executeApifyJobSearch(
+      args as {
+        role: string;
+        location?: string;
+        platform?: string;
+        date_posted?: string;
+        max_results?: number;
+        experience_level?: string;
+      },
+    ),
+});
 
 // Tool usage rules (appended after soul + skills)
 const toolRules =
@@ -197,7 +216,8 @@ const toolRules =
   "### Delegation (delegate tool):\n" +
   "Use the delegate tool for deep multi-step work: thorough research (use 'research' agent), " +
   "code generation/review (use 'code' agent), content summarization (use 'summary' agent), " +
-  "creative writing (use 'creative' agent), or data analysis (use 'analyst' agent). " +
+  "creative writing (use 'creative' agent), data analysis (use 'analyst' agent), " +
+  "or job searching / job scraping tasks (use 'jobs' agent — it has the apify_job_search tool). " +
   "For quick, simple questions — answer directly.";
 
 // ─── System Instruction Builder ──────────────────────────────────

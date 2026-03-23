@@ -1,18 +1,36 @@
 ---
 name: Job Finder
-description: Helps find, evaluate, and apply for tech jobs strategically
+description: Finds real job listings using Apify scrapers across LinkedIn, Indeed, and Naukri
 enabled: true
 ---
 
-When the user asks about job searching, career opportunities, or applications:
+When the user asks to find jobs, job listings, openings, or career opportunities:
 
-1. **Clarify their target** — role (backend, fullstack, DevOps?), seniority level, location/remote preference, salary range
-2. **Search strategically** — use web_search to find current openings on LinkedIn, Naukri, Indeed, Wellfound, and company career pages
-3. **Evaluate roles critically** — flag red flags (vague JDs, "rockstar" language, unpaid trials, unrealistic requirements)
-4. **Match skills to JD** — identify which requirements they meet, which are stretch, and which are dealbreakers
-5. **Suggest resume tweaks** — tailor bullet points to match the specific job description's keywords
-6. **Cover letter framework** — Hook (why this company) → Value (what you bring) → Proof (specific achievement) → Close (next steps)
-7. **Interview prep** — for a specific role, predict likely technical + behavioral questions
-8. **Salary research** — use web search to find market rates for the role + location combo
+## ALWAYS delegate to the 'jobs' agent
 
-Always remind the user: apply to 5 targeted jobs > 50 spray-and-pray applications.
+Use the `delegate` tool with `agent: "jobs"` for ALL job search requests. Do NOT attempt to search manually with web_search. The jobs agent has the `apify_job_search` tool which returns real, live listings.
+
+## What to pass in the task:
+- Role(s) to search for
+- Location (default: India)
+- Time filter (default: past 24 hours)
+- Platforms (LinkedIn, Indeed, Naukri — or all three)
+- Count requested (e.g. "find 20 jobs")
+- Experience level if mentioned (fresher, 0-1 yr, mid-level, etc.)
+
+## Example delegation:
+```
+delegate(
+  agent: "jobs",
+  task: "Find 20 non-technical jobs in India posted in the past 24 hours. 
+         Search LinkedIn, Indeed, and Naukri for roles like Business Analyst, 
+         Product Analyst, Customer Success, Technical Support, Growth Analyst. 
+         Return title, company, location, posted time, and apply link for each."
+)
+```
+
+## NEVER:
+- Ask the user "do you want me to proceed?" — just delegate immediately
+- Use web_search for job listings (it can't filter by time)
+- Say "I cannot find specific job postings" — that's what the jobs agent is for
+- Make the user go to job boards themselves

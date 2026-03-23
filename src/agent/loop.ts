@@ -169,17 +169,36 @@ registerTool({
 
 // Tool usage rules (appended after soul + skills)
 const toolRules =
-  "Use the remember_fact tool ONLY when the user states a clear preference, " +
-  "defines a long-term goal, provides personal profile info, sets a recurring " +
-  "routine, or explicitly asks you to remember something. " +
-  "Do NOT save casual conversation, jokes, small talk, or temporary emotions. " +
-  "You CAN answer general knowledge questions (people, places, history, science, etc.) " +
-  "directly from your training data — you do NOT need a tool for that. " +
-  "Only use tools when you need real-time or dynamic information. " +
-  "Use the delegate tool when a task requires deep multi-step work: thorough research " +
-  "(use 'research' agent), code generation/review (use 'code' agent), content " +
-  "summarization (use 'summary' agent), creative writing (use 'creative' agent), " +
-  "or data analysis (use 'analyst' agent). For quick, simple questions — answer directly.";
+  "## Tool Usage Rules\n\n" +
+
+  "### NEVER refuse a task you have tools to handle.\n" +
+  "If the user asks for real-time data, job listings, news, prices, search results, " +
+  "or any live/current information — USE YOUR TOOLS. Do NOT say 'I cannot browse the web' " +
+  "or 'I don't have access to real-time data'. You DO have web_search, web_research, " +
+  "browse_page, and read_url tools. USE THEM.\n\n" +
+
+  "### Job Searches & Aggregation Tasks:\n" +
+  "When asked to find jobs, listings, or aggregate data from multiple sources — " +
+  "use web_search or web_research to search each source (LinkedIn, Naukri, Indeed, " +
+  "company career portals, etc.) and compile real results. For deep multi-source " +
+  "research tasks, delegate to the 'research' agent. Never refuse these tasks — " +
+  "just start searching and report what you find.\n\n" +
+
+  "### General Tool Rules:\n" +
+  "- Use web_search for quick lookups of current/real-time information.\n" +
+  "- Use web_research for structured deep dives (it does multiple searches).\n" +
+  "- Use browse_page to read a specific URL or page.\n" +
+  "- Use read_url to extract content from a direct link.\n" +
+  "- Use remember_fact ONLY when the user states a clear preference, defines a long-term goal, " +
+  "provides personal profile info, sets a recurring routine, or explicitly asks you to remember something.\n" +
+  "- Do NOT save casual conversation, jokes, small talk, or temporary emotions.\n" +
+  "- You CAN answer general knowledge questions directly from training data — no tool needed.\n\n" +
+
+  "### Delegation (delegate tool):\n" +
+  "Use the delegate tool for deep multi-step work: thorough research (use 'research' agent), " +
+  "code generation/review (use 'code' agent), content summarization (use 'summary' agent), " +
+  "creative writing (use 'creative' agent), or data analysis (use 'analyst' agent). " +
+  "For quick, simple questions — answer directly.";
 
 // ─── System Instruction Builder ──────────────────────────────────
 

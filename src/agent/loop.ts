@@ -234,27 +234,41 @@ async function buildSystemInstruction(
   // 1. Soul + system rules
   parts.push(soulPrompt);
 
-  // 2. Skills
+  // 2. Current date/time (injected fresh on every request)
+  const nowIST = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    dateStyle: "full",
+    timeStyle: "long",
+  });
+  parts.push(
+    `## Current Date & Time\n` +
+    `The current date and time is: **${nowIST}** (Indian Standard Time).\n` +
+    `Always use this as the authoritative date. When searching for news or current events, ` +
+    `always include the current year (${new Date().getFullYear()}) and month in your search queries ` +
+    `to ensure you get fresh results and not stale/old articles.`,
+  );
+
+  // 3. Skills
   if (skillsPrompt) {
     parts.push(skillsPrompt);
   }
 
-  // 3. Tool usage rules
+  // 4. Tool usage rules
   parts.push(toolRules);
 
-  // 4. Tier 1 Core Memory
+  // 5. Tier 1 Core Memory
   const coreMemory = buildCoreMemoryPrompt();
   if (coreMemory) {
     parts.push(coreMemory);
   }
 
-  // 5. Tier 2 Rolling Summary
+  // 6. Tier 2 Rolling Summary
   const rollingSummary = getCoreMemory(`rolling_summary_${chatId}`);
   if (rollingSummary) {
     parts.push(`## Conversation Summary (Older Context)\n${rollingSummary}`);
   }
 
-  // 6. Tier 3 Semantic Memories (top 3-5)
+  // 7. Tier 3 Semantic Memories (top 3-5)
   try {
     const semanticBlock = await buildSemanticPrompt(userMessage);
     if (semanticBlock) {

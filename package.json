@@ -7,6 +7,8 @@
   "scripts": {
     "start": "npx tsx src/index.ts",
     "dev": "node --import tsx src/index.ts",
+    "mc": "cd mission-control-react && npm run dev",
+    "launch": "concurrently -n bot,mc -c blue,magenta \"npm start\" \"npm run mc\"",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -22,6 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.5.0",
+    "concurrently": "^9.2.1",
     "tsx": "^4.19.0",
     "typescript": "^5.5.4",
     "vitest": "^4.1.0"

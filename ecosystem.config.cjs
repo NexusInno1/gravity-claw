@@ -18,15 +18,17 @@
  *   pm2 startup                 — generate OS auto-start script
  */
 
+const isWindows = process.platform === 'win32';
+const npmCmd = isWindows ? 'npm.cmd' : 'npm';
+
 module.exports = {
     apps: [
         // ── Main Bot ────────────────────────────────────────────────────
         {
             name: "gravity-claw",
-            script: "npx",
-            args: "tsx src/index.ts",
+            script: npmCmd,
+            args: "run start",
             cwd: __dirname,
-            interpreter: "none",
 
             // Restart policy
             autorestart: true,
@@ -52,10 +54,9 @@ module.exports = {
         // ── Mission Control Dashboard ───────────────────────────────────
         {
             name: "mission-control",
-            script: "npx",
-            args: "vite --host 0.0.0.0 --port 5173",
+            script: npmCmd,
+            args: "run dev",
             cwd: __dirname + "/mission-control-react",
-            interpreter: "none",
 
             // Restart policy
             autorestart: true,

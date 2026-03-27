@@ -30,6 +30,7 @@ import {
 import { mcpManager } from "../mcp/mcp-manager.js";
 import { recordTokenUsage } from "../commands/session-stats.js";
 import type { SubAgentProfile } from "./profiles.js";
+import { updateAgentStatus } from "../lib/config-sync.js";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -142,6 +143,13 @@ export async function runSubAgentLoop(params: SubAgentParams): Promise<string> {
         `tools=${tools.length}, maxIter=${profile.maxIterations}`,
     );
 
+    // Update agent status in Supabase for Mission Control
+    updateAgentStatus(
+        profile.name,
+        "Working",
+        `Processing: ${message.substring(0, 80)}...`,
+    ).catch(() => { });
+
     // Build conversation — just the task, no history
     const messages: LLMMessage[] = [{ role: "user", content: message }];
 
@@ -215,6 +223,12 @@ export async function runSubAgentLoop(params: SubAgentParams): Promise<string> {
                 `[SubAgent/${profile.name}] Complete — ${iterationCount} iteration(s), ` +
                 `${result.length} chars`,
             );
+            // Update status back to idle
+            updateAgentStatus(
+                profile.name,
+                "Online",
+                "Idle — waiting for tasks",
+            ).catch(() => { });
             return result || "Sub-agent produced no output.";
         }
     }

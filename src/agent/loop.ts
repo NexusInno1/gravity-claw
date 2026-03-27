@@ -91,7 +91,7 @@ import {
 } from "../memory/semantic.js";
 
 // Skills system
-import { loadSkills, buildSkillsPrompt } from "../skills/skills.js";
+import { buildSkillsPrompt } from "../skills/skills.js";
 
 // MCP system
 import { mcpManager } from "../mcp/mcp-manager.js";
@@ -104,7 +104,7 @@ import { getEffectiveModel } from "../commands/slash-commands.js";
 
 const MAX_ITERATIONS = 5;
 
-// ─── Soul + Skills (loaded once at startup) ──────────────────────
+// ─── Soul (loaded once at startup) ───────────────────────────────
 
 let soulPrompt = "";
 try {
@@ -114,9 +114,6 @@ try {
   console.warn("[Soul] soul.md not found — using default personality.");
   soulPrompt = "You are Gravity Claw, a sharp personal AI agent.";
 }
-
-const skills = loadSkills(resolve(process.cwd(), "skills"));
-const skillsPrompt = buildSkillsPrompt(skills);
 
 // ─── Register Built-in Tools ─────────────────────────────────────
 
@@ -248,9 +245,10 @@ async function buildSystemInstruction(
     `to ensure you get fresh results and not stale/old articles.`,
   );
 
-  // 3. Skills
-  if (skillsPrompt) {
-    parts.push(skillsPrompt);
+  // 3. Skills (hot-reloaded from Supabase + local files)
+  const currentSkillsPrompt = buildSkillsPrompt();
+  if (currentSkillsPrompt) {
+    parts.push(currentSkillsPrompt);
   }
 
   // 4. Tool usage rules

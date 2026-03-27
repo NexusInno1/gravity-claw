@@ -31,8 +31,9 @@ npm-debug.log*
 dist/
 .next/
 
-# Mission Control (local only — contains hardcoded Supabase credentials in config.js)
+# Mission Control (local only — contains hardcoded Supabase credentials)
 mission-control/
+mission-control-react/
 
 # Any secrets/credential files
 secrets.json

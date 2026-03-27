@@ -2,6 +2,9 @@ FROM node:20-slim
 
 WORKDIR /app
 
+# Install PM2 globally
+RUN npm install -g pm2
+
 # Copy package files
 COPY package*.json ./
 
@@ -14,6 +17,10 @@ COPY tsconfig.json ./
 COPY soul.md ./
 COPY skills/ ./skills/
 COPY mcp.json ./
+COPY ecosystem.config.cjs ./
 
-# Start the bot
-CMD ["npx", "tsx", "src/index.ts"]
+# Create logs directory
+RUN mkdir -p logs
+
+# Default: start with PM2 (use CMD ["npx","tsx","src/index.ts"] for direct mode)
+CMD ["pm2-runtime", "ecosystem.config.cjs", "--only", "gravity-claw"]

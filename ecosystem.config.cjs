@@ -11,23 +11,17 @@
  *   pm2 logs                    — tail all logs
  *   pm2 logs gravity-claw       — tail bot logs only
  *   pm2 logs mission-control    — tail dashboard logs only
- *   pm2 restart all             — restart everything
- *   pm2 stop all                — stop everything
- *   pm2 delete all              — remove from PM2 process list
  *   pm2 save                    — save current process list
  *   pm2 startup                 — generate OS auto-start script
  */
-
-const isWindows = process.platform === 'win32';
-const npmCmd = isWindows ? 'npm.cmd' : 'npm';
 
 module.exports = {
     apps: [
         // ── Main Bot ────────────────────────────────────────────────────
         {
             name: "gravity-claw",
-            script: npmCmd,
-            args: "run start",
+            script: "./node_modules/tsx/dist/cli.mjs",
+            args: "src/index.ts",
             cwd: __dirname,
 
             // Restart policy
@@ -54,8 +48,8 @@ module.exports = {
         // ── Mission Control Dashboard ───────────────────────────────────
         {
             name: "mission-control",
-            script: npmCmd,
-            args: "run dev",
+            script: "./node_modules/vite/bin/vite.js",
+            args: "--host 0.0.0.0 --port 5173",
             cwd: __dirname + "/mission-control-react",
 
             // Restart policy

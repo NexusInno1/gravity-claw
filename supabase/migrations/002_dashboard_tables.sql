@@ -46,4 +46,9 @@ create table if not exists bot_facts (
 create index if not exists idx_bot_facts_category on bot_facts(category);
 
 -- Enable realtime for activity_log
-alter publication supabase_realtime add table activity_log;
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE activity_log;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;

@@ -19,4 +19,9 @@ CREATE INDEX IF NOT EXISTS idx_usage_logs_model ON usage_logs (model);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_chat_id ON usage_logs (chat_id);
 
 -- Enable Realtime for this table (so Mission Control gets live updates)
-ALTER PUBLICATION supabase_realtime ADD TABLE usage_logs;
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE usage_logs;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;

@@ -34,8 +34,19 @@ CREATE TABLE IF NOT EXISTS public.office_agents (
 
 -- 3. ENABLE SUPABASE REALTIME ON NEW TABLES
 -- (We also include the previous ones here just in case)
-alter publication supabase_realtime add table scheduled_events;
-alter publication supabase_realtime add table office_agents;
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE scheduled_events;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE office_agents;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
 -- =========================================
 -- OPTIONAL: SEED DATA TO PREVIEW THE UI

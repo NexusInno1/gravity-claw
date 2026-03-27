@@ -34,4 +34,10 @@ BEGIN
 END $$;
 
 -- Enable Realtime on bot_config for hot-reload
-ALTER PUBLICATION supabase_realtime ADD TABLE bot_config;
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE bot_config;
+EXCEPTION
+  WHEN duplicate_object THEN
+    NULL;
+END $$;

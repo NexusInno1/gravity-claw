@@ -22,7 +22,13 @@ CREATE INDEX IF NOT EXISTS idx_skills_slug ON skills (slug);
 CREATE INDEX IF NOT EXISTS idx_skills_enabled ON skills (enabled);
 
 -- Enable Realtime for hot-reload
-ALTER PUBLICATION supabase_realtime ADD TABLE skills;
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE skills;
+EXCEPTION
+  WHEN duplicate_object THEN
+    NULL;
+END $$;
 
 -- ─── Seed from existing skill files ──────────────────────────────
 -- These match the current /skills/*.md files

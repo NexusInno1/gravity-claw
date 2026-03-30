@@ -22,7 +22,7 @@
 
 import { ENV } from "../config.js";
 import { getProviderName } from "../lib/router.js";
-import { PROFILES } from "../agents/profiles.js";
+import { PROFILES } from "../agent/profiles.js";
 import {
   getSessionStats,
   resetSessionStats,

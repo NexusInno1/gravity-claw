@@ -23,8 +23,8 @@ import {
     getProfile,
     getProfileNames,
     formatProfileList,
-} from "../agents/profiles.js";
-import type { SubAgentProfile } from "../agents/profiles.js";
+} from "../agent/profiles.js";
+import type { SubAgentProfile } from "../agent/profiles.js";
 import { ENV } from "../config.js";
 import { getEffectiveModel } from "../commands/slash-commands.js";
 
@@ -112,7 +112,7 @@ export async function executeDelegate(
         const model = profile.modelOverride || getEffectiveModel(chatId);
 
         // Dynamic import to break circular dependency (loop → delegate → loop)
-        const { runSubAgentLoop } = await import("../agents/sub-loop.js");
+        const { runSubAgentLoop } = await import("../agent/sub-loop.js");
 
         const result = await runSubAgentLoop({
             message: subAgentMessage,

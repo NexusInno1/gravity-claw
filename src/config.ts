@@ -50,15 +50,19 @@ if (!allowedUsersRaw) {
   throw new Error("ALLOWED_USER_IDS is not defined in .env");
 }
 
-// Parse comma-separated IDs into a Set of numbers for fast lookup
+// Parse comma-separated IDs into a Set of strings.
+// String comparison is critical — Discord snowflake IDs are 64-bit integers
+// that exceed Number.MAX_SAFE_INTEGER, so parseInt() would silently truncate them.
 const allowedUsers = new Set(
-  allowedUsersRaw.split(",").map((id) => {
-    const parsed = parseInt(id.trim(), 10);
-    if (isNaN(parsed)) {
-      throw new Error(`Invalid user ID in ALLOWED_USER_IDS: ${id}`);
-    }
-    return parsed;
-  }),
+  allowedUsersRaw
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => {
+      if (id.length === 0 || !/^\d+$/.test(id)) {
+        throw new Error(`Invalid user ID in ALLOWED_USER_IDS: "${id}"`);
+      }
+      return true;
+    }),
 );
 
 // Tavily Search (optional — used for structured/research queries)

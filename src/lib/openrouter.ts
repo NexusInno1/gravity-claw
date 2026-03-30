@@ -82,11 +82,29 @@ function messagesToOpenAI(messages: LLMMessage[]): ChatCompletionMessageParam[] 
       continue;
     }
 
-    // Regular user/assistant text
+    // Regular user/assistant text (with optional inline images)
     if (msg.role === "assistant") {
       result.push({ role: "assistant", content: msg.content || "" });
     } else {
-      result.push({ role: "user", content: msg.content || "" });
+      // User message — may include inline images for vision
+      if (msg.inlineImages && msg.inlineImages.length > 0) {
+        const parts: Array<
+          | { type: "text"; text: string }
+          | { type: "image_url"; image_url: { url: string } }
+        > = [];
+        if (msg.content) {
+          parts.push({ type: "text", text: msg.content });
+        }
+        for (const img of msg.inlineImages) {
+          parts.push({
+            type: "image_url",
+            image_url: { url: `data:${img.mimeType};base64,${img.data}` },
+          });
+        }
+        result.push({ role: "user", content: parts as any });
+      } else {
+        result.push({ role: "user", content: msg.content || "" });
+      }
     }
   }
 

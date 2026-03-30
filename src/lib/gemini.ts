@@ -32,8 +32,12 @@ const exhaustedKeys = new Set<number>();
 let lastResetTime = Date.now();
 const RESET_INTERVAL_MS = 60 * 1000;
 
+/** Cached GoogleGenAI clients — one per API key index. */
+const clientCache = new Map<number, GoogleGenAI>();
+
 /**
  * Get a GoogleGenAI instance using the next available (non-exhausted) key.
+ * Clients are cached per key to avoid re-creating objects on every call.
  * Exported so vision path and semantic embeddings can share rotation.
  */
 export function getAI(): GoogleGenAI {
@@ -55,14 +59,23 @@ export function getAI(): GoogleGenAI {
     if (!exhaustedKeys.has(idx)) {
       lastUsedKeyIndex = idx;
       currentKeyIndex = (idx + 1) % keys.length;
-      return new GoogleGenAI({ apiKey: keys[idx] });
+      return getOrCreateClient(idx, keys[idx]);
     }
   }
 
   // All exhausted — use current anyway (retry logic will handle it)
   lastUsedKeyIndex = currentKeyIndex;
   currentKeyIndex = (currentKeyIndex + 1) % keys.length;
-  return new GoogleGenAI({ apiKey: keys[lastUsedKeyIndex] });
+  return getOrCreateClient(lastUsedKeyIndex, keys[lastUsedKeyIndex]);
+}
+
+function getOrCreateClient(index: number, apiKey: string): GoogleGenAI {
+  let client = clientCache.get(index);
+  if (!client) {
+    client = new GoogleGenAI({ apiKey });
+    clientCache.set(index, client);
+  }
+  return client;
 }
 
 function rotateKey(): boolean {
@@ -123,6 +136,18 @@ function messagesToContents(messages: LLMMessage[]): {
     // Text content
     if (msg.content) {
       parts.push({ text: msg.content });
+    }
+
+    // Inline images (vision / multimodal)
+    if (msg.inlineImages && msg.inlineImages.length > 0) {
+      for (const img of msg.inlineImages) {
+        parts.push({
+          inlineData: {
+            mimeType: img.mimeType,
+            data: img.data,
+          },
+        });
+      }
     }
 
     // Outgoing tool calls (assistant → model)

@@ -24,7 +24,7 @@
 
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import type { Tool } from "@google/genai";
+
 
 // Provider-agnostic types + router
 import type {
@@ -36,14 +36,13 @@ import type {
 } from "../lib/llm.js";
 import { routedChat, getProviderName } from "../lib/router.js";
 import { geminiToolsToSchemas } from "../lib/tool-bridge.js";
-import { getAI } from "../lib/gemini.js";
+
 
 import { ENV } from "../config.js";
 
 // Centralized tool registry
 import {
   registerTool,
-  getAllToolEntries,
   getFilteredToolEntries,
   getToolDefinitions,
   getToolExecutor,
@@ -91,7 +90,7 @@ import {
 } from "../memory/semantic.js";
 
 // Skills system
-import { buildSkillsPrompt } from "../skills/skills.js";
+import { buildSkillsPrompt } from "../skills/loader.js";
 
 // MCP system
 import { mcpManager } from "../mcp/mcp-manager.js";
@@ -516,9 +515,9 @@ export async function runAgentLoop(
 /**
  * Agent loop variant that accepts an image for multimodal (vision) queries.
  *
- * Uses the Gemini SDK directly for inline base64 image support.
- * Shares the key rotation system via getAI() so vision doesn't
- * get stuck on a single exhausted key.
+ * Routes through the same provider-agnostic `routedChat()` as text,
+ * using the `inlineImages` field on LLMMessage. This gives vision the
+ * same automatic fallback, retry, and token-tracking behavior as text.
  *
  * @param userMessage Text accompanying the image (or a default prompt)
  * @param chatId The chat ID
@@ -531,118 +530,76 @@ export async function runAgentLoopWithImage(
   imageBase64: string,
   mimeType: string,
 ): Promise<string> {
+  const iterLimit = MAX_ITERATIONS;
+
   // Save a text note to buffer (we can't store binary images)
   await saveMessage(chatId, "user", `[Sent an image] ${userMessage}`);
 
   const systemInstruction = await buildSystemInstruction(chatId, userMessage);
 
-  // We still use the tool pipeline through the agnostic layer
   const { schemas: availableTools, permittedNames } = getAvailableTools();
-  let iterationCount = 0;
 
-  // Build Gemini-native content with inline image
-  const activeVisionModel = getEffectiveModel(chatId);
-
-  // Use generic array to avoid type issues with mixed role literals
-  const geminiContents: Array<{ role: string; parts: any[] }> = [
+  // Build conversation — first message carries the inline image
+  const messages: LLMMessage[] = [
     {
       role: "user",
-      parts: [
-        { text: userMessage },
-        {
-          inlineData: {
-            mimeType,
-            data: imageBase64,
-          },
-        },
-      ],
+      content: userMessage,
+      inlineImages: [{ data: imageBase64, mimeType }],
     },
   ];
 
-  // Get Gemini-format tool definitions for vision calls
-  const filteredEntries = getFilteredToolEntries();
-  const builtinGeminiDefs = getToolDefinitions(filteredEntries);
-  const mcpGeminiTools = mcpManager.getAllMcpTools();
-  const allGeminiTools: Tool[] = [...builtinGeminiDefs, ...mcpGeminiTools];
+  let iterationCount = 0;
 
-  while (iterationCount < MAX_ITERATIONS) {
+  while (iterationCount < iterLimit) {
     iterationCount++;
+
+    const activeModel = getEffectiveModel(chatId);
+    const provider = getProviderName(activeModel);
     console.log(
-      `[Agent/Vision] Iteration ${iterationCount}/${MAX_ITERATIONS}`,
+      `[Agent/Vision] Iteration ${iterationCount}/${iterLimit} — ${activeModel} (${provider})`,
     );
 
-    // Use shared key rotation via getAI() — not hardcoded keys[0]
-    const ai = getAI();
-
-    const visionStart = Date.now();
-    let response;
-    try {
-      response = await ai.models.generateContent({
-        model: activeVisionModel,
-        contents: geminiContents,
-        config: {
-          tools: allGeminiTools.length > 0 ? allGeminiTools : undefined,
-          systemInstruction,
-          temperature: 0.7,
-        },
-      });
-    } catch (error: unknown) {
-      const status = (error as { status?: number }).status;
-      if (status === 429) {
-        console.warn(`[Agent/Vision] Rate limited, retrying with next key...`);
-        continue; // getAI() will rotate to the next key
-      }
-      throw error;
-    }
-    const visionLatencyMs = Date.now() - visionStart;
+    // Route through the smart router (Gemini or OpenRouter, with fallback)
+    const llmStart = Date.now();
+    const response: LLMResponse = await routedChat({
+      model: activeModel,
+      systemInstruction,
+      messages,
+      tools: availableTools,
+      temperature: 0.7,
+    });
+    const llmLatencyMs = Date.now() - llmStart;
 
     // Track token usage
-    const visionUsage = (
-      response as {
-        usageMetadata?: {
-          promptTokenCount?: number;
-          candidatesTokenCount?: number;
-          totalTokenCount?: number;
-        };
-      }
-    ).usageMetadata;
-    if (visionUsage) {
+    if (response.usage) {
       recordTokenUsage(
         chatId,
-        activeVisionModel,
-        visionUsage.promptTokenCount || 0,
-        visionUsage.candidatesTokenCount || 0,
-        visionUsage.totalTokenCount || 0,
-        visionLatencyMs,
+        activeModel,
+        response.usage.promptTokens,
+        response.usage.completionTokens,
+        response.usage.totalTokens,
+        llmLatencyMs,
       );
     }
 
-    if (!response.candidates || response.candidates.length === 0) {
-      return "Error: Empty response from model.";
-    }
+    // Handle tool calls
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      messages.push({
+        role: "assistant",
+        content: response.text,
+        toolCalls: response.toolCalls,
+      });
 
-    const candidate = response.candidates[0];
-    if (!candidate.content || !candidate.content.parts) {
-      return "Error: Empty content from model.";
-    }
+      const toolResults: LLMToolResult[] = [];
 
-    const messageParts = candidate.content.parts;
-    geminiContents.push({ role: "model", parts: messageParts as any[] });
-
-    const toolCalls = messageParts.filter((part: any) => part.functionCall);
-
-    if (toolCalls.length > 0) {
-      const toolResultParts: any[] = [];
-
-      for (const callPart of toolCalls) {
-        const call = callPart.functionCall!;
+      for (const call of response.toolCalls) {
         console.log(`[Agent/Vision] Tool requested: ${call.name}`);
 
         let toolOutputText = "";
         try {
           toolOutputText = await executeTool(
-            call.name!,
-            (call.args as Record<string, unknown>) || {},
+            call.name,
+            call.args,
             chatId,
             permittedNames,
           );
@@ -650,20 +607,17 @@ export async function runAgentLoopWithImage(
           toolOutputText = `Error calling tool: ${String(error)}`;
         }
 
-        toolResultParts.push({
-          functionResponse: {
-            name: call.name,
-            response: { result: toolOutputText },
-          },
+        toolResults.push({
+          callId: call.id,
+          name: call.name,
+          content: toolOutputText,
         });
       }
 
-      geminiContents.push({ role: "user", parts: toolResultParts });
+      messages.push({ role: "user", toolResults });
     } else {
-      const texts = messageParts
-        .filter((p: any) => p.text)
-        .map((p: any) => p.text);
-      const finalResponse = texts.join("\n").trim();
+      // Final text response — no tool calls
+      const finalResponse = response.text?.trim() || "";
 
       if (finalResponse) {
         await saveMessage(chatId, "model", finalResponse);
@@ -676,7 +630,7 @@ export async function runAgentLoopWithImage(
 
   return (
     "Error: Agent reached maximum iterations (" +
-    MAX_ITERATIONS +
+    iterLimit +
     ") without answering."
   );
 }

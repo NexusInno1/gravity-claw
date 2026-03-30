@@ -69,8 +69,8 @@ export class DiscordChannel implements Channel {
 
             const userIdString = message.author.id;
 
-            // Only allow configured users
-            const isAllowed = Array.from(ENV.ALLOWED_USER_IDS).some(id => id.toString() === userIdString);
+            // Only allow configured users (string comparison — safe for 64-bit snowflakes)
+            const isAllowed = ENV.ALLOWED_USER_IDS.has(userIdString);
             if (!isAllowed) {
                 console.log(`[Discord] Blocked unauthorized message from user ${userIdString}`);
                 return;

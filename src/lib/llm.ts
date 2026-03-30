@@ -12,11 +12,21 @@
 
 export type LLMRole = "user" | "assistant" | "system";
 
+/** An inline image attached to a message (for multimodal / vision queries). */
+export interface LLMInlineImage {
+    /** Base64-encoded image data. */
+    data: string;
+    /** MIME type, e.g. "image/jpeg", "image/png". */
+    mimeType: string;
+}
+
 /** A single turn in a conversation. */
 export interface LLMMessage {
     role: LLMRole;
     /** Plain text content (undefined for pure tool-call messages). */
     content?: string;
+    /** Inline images attached to this message (vision / multimodal). */
+    inlineImages?: LLMInlineImage[];
     /** Tool calls the assistant wants to make (outgoing from model). */
     toolCalls?: LLMToolCall[];
     /** Tool results to return to the model (incoming from executor). */

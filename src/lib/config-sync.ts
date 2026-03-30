@@ -10,7 +10,7 @@
  */
 
 import { getSupabase, isSupabaseReady } from "./supabase.js";
-import { PROFILES } from "../agents/profiles.js";
+import { PROFILES } from "../agent/profiles.js";
 import { ENV } from "../config.js";
 
 // ─── Runtime Config Store ────────────────────────────────────────

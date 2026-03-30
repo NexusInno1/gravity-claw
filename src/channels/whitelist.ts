@@ -10,7 +10,7 @@ export async function whitelistMiddleware(ctx: Context, next: NextFunction) {
   const userId = ctx.from?.id;
 
   // If we can't determine the user ID or it's not in our explicit whitelist, drop it.
-  if (!userId || !ENV.ALLOWED_USER_IDS.has(userId)) {
+  if (!userId || !ENV.ALLOWED_USER_IDS.has(String(userId))) {
     console.log(`[Security] Dropped message from unauthorized user: ${userId}`);
     return; // Stop the middleware chain, never call next()
   }

@@ -1,5 +1,5 @@
 import { TelegramChannel } from "./channels/telegram.js";
-import { DiscordChannel } from "./channels/discord.js";
+
 import { ENV } from "./config.js";
 import { loadCoreMemories } from "./memory/core.js";
 import { isSupabaseReady } from "./lib/supabase.js";
@@ -109,13 +109,7 @@ async function start() {
     }
   }
 
-  // ── Discord Channel ────────────────────────────────────────────
-  if (ENV.DISCORD_BOT_TOKEN) {
-    const discord = new DiscordChannel();
-    discord.onMessage(messageHandler);
-    await discord.start();
-    activeChannels.push(discord);
-  }
+
 
   if (activeChannels.length === 0) {
     throw new Error("No channels started — check your .env for bot tokens.");

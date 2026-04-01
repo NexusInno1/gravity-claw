@@ -5,19 +5,11 @@ import { resolve } from "path";
 config({ path: resolve(process.cwd(), ".env") });
 
 const botToken = process.env.TELEGRAM_BOT_TOKEN || "";
-const discordToken = process.env.DISCORD_BOT_TOKEN || "";
-
-if (!botToken && !discordToken) {
-  throw new Error(
-    "At least one of TELEGRAM_BOT_TOKEN or DISCORD_BOT_TOKEN must be defined in .env",
-  );
-}
 
 if (!botToken) {
-  console.warn("[Config] TELEGRAM_BOT_TOKEN missing — Telegram channel disabled.");
-}
-if (!discordToken) {
-  console.warn("[Config] DISCORD_BOT_TOKEN missing — Discord channel disabled.");
+  throw new Error(
+    "TELEGRAM_BOT_TOKEN must be defined in .env",
+  );
 }
 
 const geminiKeysRaw = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY;
@@ -51,8 +43,7 @@ if (!allowedUsersRaw) {
 }
 
 // Parse comma-separated IDs into a Set of strings.
-// String comparison is critical — Discord snowflake IDs are 64-bit integers
-// that exceed Number.MAX_SAFE_INTEGER, so parseInt() would silently truncate them.
+// String comparison avoids precision loss with large numeric IDs.
 const allowedUsers = new Set(
   allowedUsersRaw
     .split(",")
@@ -106,7 +97,7 @@ if (!openrouterApiKey) {
 
 export const ENV = {
   TELEGRAM_BOT_TOKEN: botToken,
-  DISCORD_BOT_TOKEN: discordToken,
+
   GEMINI_API_KEYS: geminiKeys,
   GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-2.5-flash",
   ALLOWED_USER_IDS: allowedUsers,

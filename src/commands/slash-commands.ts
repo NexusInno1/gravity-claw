@@ -67,26 +67,89 @@ export function clearModelOverride(chatId: string): void {
 // ─── Known Model Shortcuts ────────────────────────────────────────
 
 const KNOWN_MODELS: Record<string, string> = {
-  // Gemini shortcuts
-  "flash": "gemini-2.5-flash",
-  "flash-2.5": "gemini-2.5-flash",
-  "flash-2.0": "gemini-2.0-flash",
+  // ── Gemini 3.x ─────────────────────────────────────────────────────────
+  "flash": "gemini-3.0-flash",
+  "flash-3": "gemini-3.0-flash",
+  "flash-3.0": "gemini-3.0-flash",
+  "pro-3.1": "gemini-3.1-pro-preview",
+  "flash-lite-3.1": "gemini-3.1-flash-lite-preview",
+
+  // ── Gemini 2.5 ─────────────────────────────────────────────────────────
   "pro": "gemini-2.5-pro",
   "pro-2.5": "gemini-2.5-pro",
+  "flash-2.5": "gemini-2.5-flash",
+  "flash-lite": "gemini-2.5-flash-lite",
+  "flash-lite-2.5": "gemini-2.5-flash-lite",
+
+  // ── Gemini 2.0 ─────────────────────────────────────────────────────────
+  "flash-2.0": "gemini-2.0-flash",
+  "flash-lite-2.0": "gemini-2.0-flash-lite",
+
+  // ── Gemini 1.5 (legacy) ────────────────────────────────────────────────
   "pro-1.5": "gemini-1.5-pro",
   "flash-1.5": "gemini-1.5-flash",
-  "flash-lite": "gemini-2.0-flash-lite",
+  "flash-8b": "gemini-1.5-flash-8b",
 
-  // OpenRouter shortcuts — popular free/cheap models
+  // ── OpenRouter Free Tier ───────────────────────────────────────────────
+  // Llama 4
+  "llama": "meta-llama/llama-4-maverick:free",
+  "llama-maverick": "meta-llama/llama-4-maverick:free",
+  "llama-scout": "meta-llama/llama-4-scout:free",
+  // DeepSeek
+  "deepseek": "deepseek/deepseek-chat-v3-0324:free",
+  "deepseek-v3": "deepseek/deepseek-chat-v3-0324:free",
+  "deepseek-r1": "deepseek/deepseek-r1-0528:free",
+  "deepseek-r1-zero": "deepseek/deepseek-r1-zero:free",
+  // Qwen
+  "qwen": "qwen/qwen3-235b-a22b:free",
+  "qwen3": "qwen/qwen3-235b-a22b:free",
+  "qwen-coder": "qwen/qwen3-coder-480b-a35b:free",
+  // Mistral free
   "mistral": "mistralai/mistral-small-3.1-24b-instruct:free",
   "mistral-small": "mistralai/mistral-small-3.1-24b-instruct:free",
-  "llama": "meta-llama/llama-4-maverick:free",
-  "llama-scout": "meta-llama/llama-4-scout:free",
-  "llama-maverick": "meta-llama/llama-4-maverick:free",
-  "deepseek": "deepseek/deepseek-chat-v3-0324:free",
-  "deepseek-r1": "deepseek/deepseek-r1-0528:free",
-  "qwen": "qwen/qwen3-235b-a22b:free",
+  "mistral-7b": "mistralai/mistral-7b-instruct:free",
+  // Microsoft / NVIDIA
   "phi": "microsoft/phi-4-reasoning-plus:free",
+  "nemotron": "nvidia/nemotron-3-super:free",
+  // Misc free
+  "gpt-oss": "openai/gpt-oss-20b:free",
+  "step-flash": "stepfun/step-3.5-flash:free",
+  "trinity": "arcee-ai/trinity-mini:free",
+
+  // ── OpenRouter Paid — Claude ───────────────────────────────────────────
+  "claude": "anthropic/claude-3.7-sonnet",
+  "claude-sonnet": "anthropic/claude-3.7-sonnet",
+  "claude-opus": "anthropic/claude-3.7-opus",
+  "claude-haiku": "anthropic/claude-3.5-haiku",
+  "claude-3.5": "anthropic/claude-3.5-sonnet",
+
+  // ── OpenRouter Paid — OpenAI / GPT ────────────────────────────────────
+  "gpt": "openai/gpt-4o",
+  "gpt-4o": "openai/gpt-4o",
+  "gpt-4o-mini": "openai/gpt-4o-mini",
+  "gpt-5": "openai/gpt-5.4",
+  "gpt-5-mini": "openai/gpt-5.4-mini",
+  "o3": "openai/o3",
+  "o4-mini": "openai/o4-mini",
+
+  // ── OpenRouter Paid — Llama paid ──────────────────────────────────────
+  "llama-paid": "meta-llama/llama-4-maverick",
+  "llama-3.3": "meta-llama/llama-3.3-70b-instruct",
+
+  // ── OpenRouter Paid — Mistral ──────────────────────────────────────────
+  "mistral-large": "mistralai/mistral-large",
+
+  // ── OpenRouter Paid — Qwen ────────────────────────────────────────────
+  "qwq": "qwen/qwq-32b",
+  "qwen-paid": "qwen/qwen3-235b-a22b",
+
+  // ── OpenRouter Paid — DeepSeek ────────────────────────────────────────
+  "deepseek-paid": "deepseek/deepseek-chat-v3-0324",
+  "deepseek-r1-paid": "deepseek/deepseek-r1",
+
+  // ── Google models via OpenRouter ──────────────────────────────────────
+  "gemini-or": "google/gemini-3.0-flash",
+  "gemini-pro-or": "google/gemini-2.5-pro",
 };
 
 function resolveModel(raw: string): string | null {
@@ -237,13 +300,24 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
 
     lines.push(
       "",
-      "**Gemini models:**  `/model flash` | `/model pro` | `/model gemini-2.0-flash`",
-      "**OpenRouter models:** `/model mistral` | `/model llama` | `/model deepseek`",
-      "**Any model:**     `/model provider/model-name` (e.g. `/model anthropic/claude-3-haiku`)",
-      "**Reset to default:** `/model reset`",
+      "**Gemini 3.x:**    `/model flash` | `/model pro-3.1` | `/model flash-lite-3.1`",
+      "**Gemini 2.5:**    `/model pro` | `/model flash-2.5` | `/model flash-lite`",
+      "**Gemini 2.0:**    `/model flash-2.0` | `/model flash-lite-2.0`",
+      "**Gemini 1.5:**    `/model pro-1.5` | `/model flash-1.5` | `/model flash-8b`",
       "",
-      "**Gemini shortcuts:** `flash`, `flash-2.0`, `flash-lite`, `pro`, `pro-1.5`, `flash-1.5`",
-      "**OpenRouter shortcuts:** `mistral`, `llama`, `llama-scout`, `deepseek`, `deepseek-r1`, `qwen`, `phi`",
+      "**Free — Llama:**     `llama` | `llama-scout`",
+      "**Free — DeepSeek:**  `deepseek` | `deepseek-r1` | `deepseek-r1-zero`",
+      "**Free — Qwen:**      `qwen` | `qwen-coder`",
+      "**Free — Mistral:**   `mistral` | `mistral-7b`",
+      "**Free — Other:**     `phi` | `nemotron` | `gpt-oss` | `step-flash` | `trinity`",
+      "",
+      "**Paid — Claude:**    `claude` | `claude-opus` | `claude-haiku` | `claude-3.5`",
+      "**Paid — GPT:**       `gpt` | `gpt-4o-mini` | `gpt-5` | `gpt-5-mini` | `o3` | `o4-mini`",
+      "**Paid — Llama:**     `llama-paid` | `llama-3.3`",
+      "**Paid — Other:**     `mistral-large` | `qwq` | `deepseek-paid` | `deepseek-r1-paid`",
+      "",
+      "**Any model:**        `/model provider/model-name` (e.g. `/model anthropic/claude-3.5-sonnet`)",
+      "**Reset to default:** `/model reset`",
     );
 
     return { handled: true, response: lines.join("\n") };
@@ -265,9 +339,10 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
       handled: true,
       response: [
         `❌ Unknown model: \`${args[0]}\`\n`,
-        "**Gemini shortcuts:** `flash`, `flash-2.0`, `flash-2.5`, `flash-lite`, `flash-1.5`, `pro`, `pro-1.5`, `pro-2.5`",
-        "**OpenRouter shortcuts:** `mistral`, `llama`, `llama-scout`, `deepseek`, `deepseek-r1`, `qwen`, `phi`",
-        "**Or use full name:** e.g. `gemini-2.0-flash` or `anthropic/claude-3-haiku`",
+        "**Gemini:**    `flash`, `flash-2.5`, `flash-2.0`, `flash-lite`, `pro`, `pro-3.1`, `pro-1.5`",
+        "**Free OR:**   `llama`, `deepseek`, `deepseek-r1`, `qwen`, `mistral`, `phi`, `nemotron`",
+        "**Paid OR:**   `claude`, `claude-opus`, `gpt`, `gpt-5`, `o3`, `mistral-large`, `qwq`",
+        "**Full name:** e.g. `gemini-2.5-flash` or `anthropic/claude-3.7-sonnet`",
       ].join("\n"),
     };
   }

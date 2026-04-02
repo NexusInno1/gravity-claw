@@ -16,7 +16,7 @@
  */
 
 // ─── Pricing Table ────────────────────────────────────────────────
-// Prices in USD per 1 000 000 tokens (as of March 2025).
+// Prices in USD per 1 000 000 tokens (as of April 2026).
 // Prompt / Completion prices listed separately.
 //
 // Sources: https://ai.google.dev/pricing, https://openrouter.ai/models
@@ -29,29 +29,88 @@ interface ModelPricing {
 }
 
 const PRICING: Record<string, ModelPricing> = {
-    // ── Gemini ────────────────────────────────────────────────────
+    // ── Gemini 3.x ────────────────────────────────────────────────
+    "gemini-3.1-pro-preview": { promptPer1M: 2.00, completionPer1M: 12.00 },
+    "gemini-3.0-flash": { promptPer1M: 0.50, completionPer1M: 3.00 },
+    "gemini-3.1-flash-lite-preview": { promptPer1M: 0.10, completionPer1M: 0.40 },
+
+    // ── Gemini 2.5 ────────────────────────────────────────────────
     "gemini-2.5-pro": { promptPer1M: 1.25, completionPer1M: 10.00 },
-    "gemini-2.5-flash": { promptPer1M: 0.075, completionPer1M: 0.30 },
+    "gemini-2.5-flash": { promptPer1M: 0.30, completionPer1M: 2.50 },
+    "gemini-2.5-flash-lite": { promptPer1M: 0.10, completionPer1M: 0.40 },
+
+    // ── Gemini 2.0 ────────────────────────────────────────────────
     "gemini-2.0-flash": { promptPer1M: 0.075, completionPer1M: 0.30 },
-    "gemini-2.0-flash-lite": { promptPer1M: 0.075, completionPer1M: 0.30 },
+    "gemini-2.0-flash-lite": { promptPer1M: 0.025, completionPer1M: 0.10 },
+
+    // ── Gemini 1.5 (legacy) ───────────────────────────────────────
     "gemini-1.5-pro": { promptPer1M: 1.25, completionPer1M: 5.00 },
     "gemini-1.5-flash": { promptPer1M: 0.075, completionPer1M: 0.30 },
     "gemini-1.5-flash-8b": { promptPer1M: 0.0375, completionPer1M: 0.15 },
 
-    // ── OpenRouter Free Tier (cost = $0) ──────────────────────────
-    "mistralai/mistral-small-3.1-24b-instruct:free": { promptPer1M: 0, completionPer1M: 0 },
+    // ── OpenRouter Free Tier ($0) ─────────────────────────────────
+    // Llama 4
     "meta-llama/llama-4-maverick:free": { promptPer1M: 0, completionPer1M: 0 },
     "meta-llama/llama-4-scout:free": { promptPer1M: 0, completionPer1M: 0 },
+    // DeepSeek
     "deepseek/deepseek-chat-v3-0324:free": { promptPer1M: 0, completionPer1M: 0 },
     "deepseek/deepseek-r1-0528:free": { promptPer1M: 0, completionPer1M: 0 },
+    "deepseek/deepseek-r1-zero:free": { promptPer1M: 0, completionPer1M: 0 },
+    // Qwen
     "qwen/qwen3-235b-a22b:free": { promptPer1M: 0, completionPer1M: 0 },
+    "qwen/qwen3-coder-480b-a35b:free": { promptPer1M: 0, completionPer1M: 0 },
+    // Mistral
+    "mistralai/mistral-small-3.1-24b-instruct:free": { promptPer1M: 0, completionPer1M: 0 },
+    "mistralai/mistral-7b-instruct:free": { promptPer1M: 0, completionPer1M: 0 },
+    // Microsoft
     "microsoft/phi-4-reasoning-plus:free": { promptPer1M: 0, completionPer1M: 0 },
+    // NVIDIA
+    "nvidia/nemotron-3-super:free": { promptPer1M: 0, completionPer1M: 0 },
+    // Google via OpenRouter
+    "google/gemini-3.0-flash:free": { promptPer1M: 0, completionPer1M: 0 },
+    "google/gemini-2.0-flash-exp:free": { promptPer1M: 0, completionPer1M: 0 },
+    // Misc free
+    "openai/gpt-oss-20b:free": { promptPer1M: 0, completionPer1M: 0 },
+    "stepfun/step-3.5-flash:free": { promptPer1M: 0, completionPer1M: 0 },
+    "arcee-ai/trinity-mini:free": { promptPer1M: 0, completionPer1M: 0 },
 
-    // ── OpenRouter Paid (commonly used) ───────────────────────────
+    // ── OpenRouter Paid — Anthropic / Claude ─────────────────────
+    "anthropic/claude-3.7-opus": { promptPer1M: 15.00, completionPer1M: 75.00 },
+    "anthropic/claude-3.7-sonnet": { promptPer1M: 3.00, completionPer1M: 15.00 },
     "anthropic/claude-3.5-sonnet": { promptPer1M: 3.00, completionPer1M: 15.00 },
+    "anthropic/claude-3.5-haiku": { promptPer1M: 0.80, completionPer1M: 4.00 },
     "anthropic/claude-3-haiku": { promptPer1M: 0.25, completionPer1M: 1.25 },
+    "anthropic/claude-3-opus": { promptPer1M: 15.00, completionPer1M: 75.00 },
+
+    // ── OpenRouter Paid — OpenAI / GPT ───────────────────────────
+    "openai/gpt-5.4": { promptPer1M: 10.00, completionPer1M: 30.00 },
+    "openai/gpt-5.4-mini": { promptPer1M: 0.40, completionPer1M: 1.60 },
     "openai/gpt-4o": { promptPer1M: 2.50, completionPer1M: 10.00 },
     "openai/gpt-4o-mini": { promptPer1M: 0.15, completionPer1M: 0.60 },
+    "openai/o3": { promptPer1M: 10.00, completionPer1M: 40.00 },
+    "openai/o4-mini": { promptPer1M: 1.10, completionPer1M: 4.40 },
+
+    // ── OpenRouter Paid — Meta / Llama ───────────────────────────
+    "meta-llama/llama-4-maverick": { promptPer1M: 0.18, completionPer1M: 0.60 },
+    "meta-llama/llama-4-scout": { promptPer1M: 0.10, completionPer1M: 0.35 },
+    "meta-llama/llama-3.3-70b-instruct": { promptPer1M: 0.12, completionPer1M: 0.30 },
+
+    // ── OpenRouter Paid — DeepSeek ────────────────────────────────
+    "deepseek/deepseek-chat-v3-0324": { promptPer1M: 0.27, completionPer1M: 1.10 },
+    "deepseek/deepseek-r1": { promptPer1M: 0.55, completionPer1M: 2.19 },
+
+    // ── OpenRouter Paid — Mistral ─────────────────────────────────
+    "mistralai/mistral-large": { promptPer1M: 2.00, completionPer1M: 6.00 },
+    "mistralai/mistral-small-3.1-24b-instruct": { promptPer1M: 0.10, completionPer1M: 0.30 },
+
+    // ── OpenRouter Paid — Qwen ────────────────────────────────────
+    "qwen/qwen3-235b-a22b": { promptPer1M: 0.14, completionPer1M: 0.60 },
+    "qwen/qwq-32b": { promptPer1M: 0.12, completionPer1M: 0.18 },
+
+    // ── OpenRouter Paid — Google via OR ──────────────────────────
+    "google/gemini-3.0-flash": { promptPer1M: 0.50, completionPer1M: 3.00 },
+    "google/gemini-2.5-pro": { promptPer1M: 1.25, completionPer1M: 10.00 },
+    "google/gemini-2.5-flash": { promptPer1M: 0.30, completionPer1M: 2.50 },
 };
 
 /** Fallback pricing for unknown models. */

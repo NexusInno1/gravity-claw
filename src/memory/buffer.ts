@@ -95,8 +95,8 @@ async function maybeCompact(chatId: string): Promise<void> {
       .select("id", { count: "exact", head: true })
       .eq("chat_id", chatId);
 
-    if (countError || !count || count <= MAX_BUFFER_SIZE + 5) {
-      // Only compact when we're 5 over the limit to avoid constant compaction
+    if (countError || !count || count <= MAX_BUFFER_SIZE) {
+      // Only compact when buffer exceeds limit
       return;
     }
 

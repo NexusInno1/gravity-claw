@@ -22,6 +22,7 @@
 
 import { ENV } from "../config.js";
 import { getProviderName } from "../lib/router.js";
+import { getRuntimeConfig } from "../lib/config-sync.js";
 import { PROFILES } from "../agent/profiles.js";
 import {
   getSessionStats,
@@ -53,7 +54,7 @@ const sessionModelOverrides = new Map<string, string>();
  * Get the effective model for a given chat (override takes precedence).
  */
 export function getEffectiveModel(chatId: string): string {
-  return sessionModelOverrides.get(chatId) ?? ENV.GEMINI_MODEL;
+  return sessionModelOverrides.get(chatId) ?? getRuntimeConfig().primaryModel;
 }
 
 /**

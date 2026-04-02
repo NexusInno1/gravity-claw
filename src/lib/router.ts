@@ -16,7 +16,7 @@
  */
 
 import type { LLMCallParams, LLMResponse } from "./llm.js";
-import { geminiProvider, areAllKeysExhausted } from "./gemini.js";
+import { geminiProvider } from "./gemini.js";
 import { openRouterProvider } from "./openrouter.js";
 import { ENV } from "../config.js";
 
@@ -27,13 +27,18 @@ function isGeminiModel(model: string): boolean {
     return model.startsWith("gemini-");
 }
 
+/** HTTP status codes that warrant an automatic OpenRouter fallback. */
+const FALLBACK_STATUSES = new Set([429, 503]);
+
 /**
  * Route an LLM call to the appropriate provider.
  *
  * - Gemini models go to the Gemini provider.
  * - Non-Gemini models go to OpenRouter directly (first-class, not fallback).
- * - If Gemini fails with 429 and all keys are exhausted, automatically
- *   retries with OpenRouter using the configured fallback model.
+ * - If Gemini fails with 429 (quota) or 503 (service unavailable),
+ *   automatically retries with OpenRouter using the configured fallback model.
+ * - All other errors (400, 401, 500, etc.) propagate immediately so real
+ *   bugs are not silently hidden behind a fallback.
  */
 export async function routedChat(params: LLMCallParams): Promise<LLMResponse> {
     // ── Non-Gemini model → OpenRouter directly ──────────────────────
@@ -48,14 +53,13 @@ export async function routedChat(params: LLMCallParams): Promise<LLMResponse> {
     } catch (error: unknown) {
         const status = (error as { status?: number }).status;
 
-        // If Gemini threw a non-429 or there's no OpenRouter fallback, propagate
-        if (!ENV.OPENROUTER_API_KEY) {
+        // Only fall back on quota/service errors — propagate everything else
+        if (!ENV.OPENROUTER_API_KEY || !FALLBACK_STATUSES.has(status ?? 0)) {
             throw error;
         }
 
-        // Attempt OpenRouter fallback for any error
         console.log(
-            `[Router] Gemini failed (${status || "unknown"}) — falling back to OpenRouter (${ENV.OPENROUTER_MODEL})...`,
+            `[Router] Gemini failed (${status}) — falling back to OpenRouter (${ENV.OPENROUTER_MODEL})...`,
         );
 
         try {

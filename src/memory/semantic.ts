@@ -205,12 +205,16 @@ function formatTimeAgo(isoDate: string): string {
 const TRIVIAL_PATTERN =
   /^(hi|hello|hey|yo|sup|hola|ok|okay|k|yes|no|yep|nope|yea|yeah|nah|sure|cool|nice|great|thanks|thank you|thx|ty|bye|goodbye|see ya|lol|lmao|haha|hehe|hmm|ah|oh|wow|ooh|bruh|👍|🙏|😂|❤️|🔥|✅|👎|\.+|!+|\?+)$/i;
 
+/** Debounce counter — only extract facts every N-th non-trivial message. */
+let extractionCounter = 0;
+const EXTRACTION_INTERVAL = 3;
+
 /**
  * Background fact extraction.
  * Analyzes a conversation snippet and extracts facts worth remembering.
  * Runs asynchronously — never blocks the response.
  *
- * Skips trivial / very short exchanges to avoid wasting tokens.
+ * Skips trivial / very short exchanges and debounces to avoid wasting tokens.
  */
 export function triggerFactExtraction(
   userMessage: string,
@@ -219,7 +223,11 @@ export function triggerFactExtraction(
   // Skip trivial messages — no facts to extract
   const trimmed = userMessage.trim();
   if (TRIVIAL_PATTERN.test(trimmed)) return;
-  if (trimmed.length < 15 && assistantResponse.length < 50) return;
+  if (trimmed.length < 15 && assistantResponse.length < 200) return;
+
+  // Debounce — only run extraction every EXTRACTION_INTERVAL non-trivial turns
+  extractionCounter++;
+  if (extractionCounter % EXTRACTION_INTERVAL !== 0) return;
 
   // Fire and forget — do not await
   extractFacts(userMessage, assistantResponse).catch((err) =>

@@ -191,29 +191,29 @@ export async function runSubAgentLoop(params: SubAgentParams): Promise<string> {
                 toolCalls: response.toolCalls,
             });
 
-            const toolResults: LLMToolResult[] = [];
+            const toolResults: LLMToolResult[] = await Promise.all(
+                response.toolCalls.map(async (call) => {
+                    console.log(`[SubAgent/${profile.name}] Tool: ${call.name}`);
 
-            for (const call of response.toolCalls) {
-                console.log(`[SubAgent/${profile.name}] Tool: ${call.name}`);
+                    let output = "";
+                    try {
+                        output = await executeSubAgentTool(
+                            call.name,
+                            call.args,
+                            chatId,
+                            permittedNames,
+                        );
+                    } catch (error) {
+                        output = `Error: ${String(error)}`;
+                    }
 
-                let output = "";
-                try {
-                    output = await executeSubAgentTool(
-                        call.name,
-                        call.args,
-                        chatId,
-                        permittedNames,
-                    );
-                } catch (error) {
-                    output = `Error: ${String(error)}`;
-                }
-
-                toolResults.push({
-                    callId: call.id,
-                    name: call.name,
-                    content: output,
-                });
-            }
+                    return {
+                        callId: call.id,
+                        name: call.name,
+                        content: output,
+                    };
+                }),
+            );
 
             messages.push({ role: "user", toolResults });
         } else {

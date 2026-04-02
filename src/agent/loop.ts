@@ -39,6 +39,7 @@ import { geminiToolsToSchemas } from "../lib/tool-bridge.js";
 
 
 import { ENV } from "../config.js";
+import { getRuntimeConfig } from "../lib/config-sync.js";
 
 // Centralized tool registry
 import {
@@ -266,13 +267,15 @@ async function buildSystemInstruction(
   }
 
   // 7. Tier 3 Semantic Memories (top 3-5)
-  try {
-    const semanticBlock = await buildSemanticPrompt(userMessage);
-    if (semanticBlock) {
-      parts.push(semanticBlock);
+  if (getRuntimeConfig().semanticMemory) {
+    try {
+      const semanticBlock = await buildSemanticPrompt(userMessage);
+      if (semanticBlock) {
+        parts.push(semanticBlock);
+      }
+    } catch (err) {
+      console.warn("[Loop] Semantic memory unavailable, skipping Tier 3.");
     }
-  } catch (err) {
-    console.warn("[Loop] Semantic memory unavailable, skipping Tier 3.");
   }
 
   return parts.join("\n\n");
@@ -365,8 +368,16 @@ function getAvailableTools(
     }
   }
 
+  let allSchemas = [...builtinSchemas, ...mcpSchemas];
+
+  // If delegation is disabled via Mission Control, strip the delegate tool
+  if (!getRuntimeConfig().delegation) {
+    allSchemas = allSchemas.filter((s) => s.name !== "delegate");
+    permittedNames.delete("delegate");
+  }
+
   return {
-    schemas: [...builtinSchemas, ...mcpSchemas],
+    schemas: allSchemas,
     permittedNames,
   };
 }
@@ -430,7 +441,7 @@ export async function runAgentLoop(
       systemInstruction,
       messages,
       tools: availableTools,
-      temperature: 0.7,
+      temperature: getRuntimeConfig().temperature,
     });
     const llmLatencyMs = Date.now() - llmStart;
 
@@ -455,34 +466,34 @@ export async function runAgentLoop(
         toolCalls: response.toolCalls,
       });
 
-      const toolResults: LLMToolResult[] = [];
+      const toolResults: LLMToolResult[] = await Promise.all(
+        response.toolCalls.map(async (call) => {
+          console.log(`[Agent] Tool requested: ${call.name}`);
 
-      for (const call of response.toolCalls) {
-        console.log(`[Agent] Tool requested: ${call.name}`);
+          let toolOutputText = "";
+          try {
+            toolOutputText = await executeTool(
+              call.name,
+              call.args,
+              chatId,
+              permittedNames,
+            );
+          } catch (error) {
+            toolOutputText = `Error calling tool: ${String(error)}`;
+          }
 
-        let toolOutputText = "";
-        try {
-          toolOutputText = await executeTool(
-            call.name,
-            call.args,
-            chatId,
-            permittedNames,
-          );
-        } catch (error) {
-          toolOutputText = `Error calling tool: ${String(error)}`;
-        }
+          const preview = toolOutputText.length > 200
+            ? toolOutputText.substring(0, 200) + "..."
+            : toolOutputText;
+          console.log(`[Agent] Tool result (${toolOutputText.length} chars): ${preview}`);
 
-        const preview = toolOutputText.length > 200
-          ? toolOutputText.substring(0, 200) + "..."
-          : toolOutputText;
-        console.log(`[Agent] Tool result (${toolOutputText.length} chars): ${preview}`);
-
-        toolResults.push({
-          callId: call.id,
-          name: call.name,
-          content: toolOutputText,
-        });
-      }
+          return {
+            callId: call.id,
+            name: call.name,
+            content: toolOutputText,
+          };
+        }),
+      );
 
       // Append tool results to history
       messages.push({
@@ -566,7 +577,7 @@ export async function runAgentLoopWithImage(
       systemInstruction,
       messages,
       tools: availableTools,
-      temperature: 0.7,
+      temperature: getRuntimeConfig().temperature,
     });
     const llmLatencyMs = Date.now() - llmStart;
 
@@ -590,29 +601,34 @@ export async function runAgentLoopWithImage(
         toolCalls: response.toolCalls,
       });
 
-      const toolResults: LLMToolResult[] = [];
+      const toolResults: LLMToolResult[] = await Promise.all(
+        response.toolCalls.map(async (call) => {
+          console.log(`[Agent/Vision] Tool requested: ${call.name}`);
 
-      for (const call of response.toolCalls) {
-        console.log(`[Agent/Vision] Tool requested: ${call.name}`);
+          let toolOutputText = "";
+          try {
+            toolOutputText = await executeTool(
+              call.name,
+              call.args,
+              chatId,
+              permittedNames,
+            );
+          } catch (error) {
+            toolOutputText = `Error calling tool: ${String(error)}`;
+          }
 
-        let toolOutputText = "";
-        try {
-          toolOutputText = await executeTool(
-            call.name,
-            call.args,
-            chatId,
-            permittedNames,
-          );
-        } catch (error) {
-          toolOutputText = `Error calling tool: ${String(error)}`;
-        }
+          const preview = toolOutputText.length > 200
+            ? toolOutputText.substring(0, 200) + "..."
+            : toolOutputText;
+          console.log(`[Agent/Vision] Tool result (${toolOutputText.length} chars): ${preview}`);
 
-        toolResults.push({
-          callId: call.id,
-          name: call.name,
-          content: toolOutputText,
-        });
-      }
+          return {
+            callId: call.id,
+            name: call.name,
+            content: toolOutputText,
+          };
+        }),
+      );
 
       messages.push({ role: "user", toolResults });
     } else {

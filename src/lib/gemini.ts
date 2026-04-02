@@ -107,7 +107,7 @@ function getRetryDelay(error: unknown): number {
       return Math.min(Math.ceil(parseFloat(match[1])) * 1000, 60000);
     }
   } catch { }
-  return 5000;
+  return 30000;
 }
 
 function sleep(ms: number): Promise<void> {

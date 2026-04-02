@@ -99,6 +99,8 @@ export class TelegramChannel implements Channel {
   readonly name = "Telegram";
   private bot: Bot;
   private handler: MessageHandler | null = null;
+  /** Per-chat lock: prevents concurrent LLM calls from the same chat. */
+  private inFlight = new Set<string>();
 
   constructor() {
     this.bot = new Bot(ENV.TELEGRAM_BOT_TOKEN);
@@ -342,12 +344,19 @@ export class TelegramChannel implements Channel {
 
       console.log(`[Telegram] Received message from ${ctx.from.id}: ${userMessage}`);
 
+      // Concurrency guard — only one LLM call per chat at a time
+      if (this.inFlight.has(chatId) && !userMessage.startsWith("/")) {
+        await ctx.reply("⏳ Still working on your previous request — one moment...");
+        return;
+      }
+
       // Start a typing indicator loop — pulses every 4s
       await ctx.replyWithChatAction("typing");
       const typingInterval = setInterval(() => {
         ctx.replyWithChatAction("typing").catch(() => { });
       }, 4000);
 
+      this.inFlight.add(chatId);
       try {
         const incoming: IncomingMessage = {
           chatId,
@@ -362,6 +371,8 @@ export class TelegramChannel implements Channel {
         clearInterval(typingInterval);
         console.error("[Telegram] Error:", error);
         await ctx.reply(friendlyError(error, "processing your message"));
+      } finally {
+        this.inFlight.delete(chatId);
       }
     });
 

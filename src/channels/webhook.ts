@@ -94,11 +94,17 @@ export function startWebhookServer(config: WebhookConfig): void {
             }
 
             // Build notification
-            const source = payload.source ? `**${payload.source}**` : "**Webhook**";
+            const source = payload.source ? `<b>${payload.source}</b>` : "<b>Webhook</b>";
             const notification = `🔔 ${source}\n\n${payload.message}`;
 
-            // Send to Telegram
-            await bot.api.sendMessage(chatId, notification);
+            // Send to Telegram with HTML parsing
+            try {
+                await bot.api.sendMessage(chatId, notification, { parse_mode: "HTML" });
+            } catch {
+                // HTML parsing failed — send plain text
+                const plain = notification.replace(/<[^>]+>/g, "");
+                await bot.api.sendMessage(chatId, plain);
+            }
 
             console.log(
                 `[Webhook] Received from ${payload.source || "unknown"}: ${payload.message.substring(0, 80)}`,

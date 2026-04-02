@@ -31,7 +31,7 @@ interface ModelPricing {
 const PRICING: Record<string, ModelPricing> = {
     // ── Gemini 3.x ────────────────────────────────────────────────
     "gemini-3.1-pro-preview": { promptPer1M: 2.00, completionPer1M: 12.00 },
-    "gemini-3.0-flash": { promptPer1M: 0.50, completionPer1M: 3.00 },
+    "gemini-3-flash-preview": { promptPer1M: 0.50, completionPer1M: 3.00 },
     "gemini-3.1-flash-lite-preview": { promptPer1M: 0.10, completionPer1M: 0.40 },
 
     // ── Gemini 2.5 ────────────────────────────────────────────────
@@ -67,7 +67,7 @@ const PRICING: Record<string, ModelPricing> = {
     // NVIDIA
     "nvidia/nemotron-3-super:free": { promptPer1M: 0, completionPer1M: 0 },
     // Google via OpenRouter
-    "google/gemini-3.0-flash:free": { promptPer1M: 0, completionPer1M: 0 },
+    "google/gemini-3-flash-preview:free": { promptPer1M: 0, completionPer1M: 0 },
     "google/gemini-2.0-flash-exp:free": { promptPer1M: 0, completionPer1M: 0 },
     // Misc free
     "openai/gpt-oss-20b:free": { promptPer1M: 0, completionPer1M: 0 },
@@ -108,7 +108,7 @@ const PRICING: Record<string, ModelPricing> = {
     "qwen/qwq-32b": { promptPer1M: 0.12, completionPer1M: 0.18 },
 
     // ── OpenRouter Paid — Google via OR ──────────────────────────
-    "google/gemini-3.0-flash": { promptPer1M: 0.50, completionPer1M: 3.00 },
+    "google/gemini-3-flash-preview": { promptPer1M: 0.50, completionPer1M: 3.00 },
     "google/gemini-2.5-pro": { promptPer1M: 1.25, completionPer1M: 10.00 },
     "google/gemini-2.5-flash": { promptPer1M: 0.30, completionPer1M: 2.50 },
 };

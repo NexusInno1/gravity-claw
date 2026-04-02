@@ -68,9 +68,9 @@ export function clearModelOverride(chatId: string): void {
 
 const KNOWN_MODELS: Record<string, string> = {
   // ── Gemini 3.x ─────────────────────────────────────────────────────────
-  "flash": "gemini-3.0-flash",
-  "flash-3": "gemini-3.0-flash",
-  "flash-3.0": "gemini-3.0-flash",
+  "flash": "gemini-3-flash-preview",
+  "flash-3": "gemini-3-flash-preview",
+  "flash-3.0": "gemini-3-flash-preview",
   "pro-3.1": "gemini-3.1-pro-preview",
   "flash-lite-3.1": "gemini-3.1-flash-lite-preview",
 
@@ -148,7 +148,7 @@ const KNOWN_MODELS: Record<string, string> = {
   "deepseek-r1-paid": "deepseek/deepseek-r1",
 
   // ── Google models via OpenRouter ──────────────────────────────────────
-  "gemini-or": "google/gemini-3.0-flash",
+  "gemini-or": "google/gemini-3-flash-preview",
   "gemini-pro-or": "google/gemini-2.5-pro",
 };
 

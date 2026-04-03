@@ -306,8 +306,9 @@ class GeminiProvider implements LLMProvider {
         }
 
         if (status === 404) {
-          rotateKey();
-          continue;
+          // 404 = model not found — rotating keys won't help (it's the model name that's wrong).
+          // Re-throw the original error (with .status intact) so the router can fall back to OpenRouter.
+          throw error;
         }
 
         // Non-retryable — throw immediately

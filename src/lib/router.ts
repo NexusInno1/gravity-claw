@@ -28,14 +28,14 @@ function isGeminiModel(model: string): boolean {
 }
 
 /** HTTP status codes that warrant an automatic OpenRouter fallback. */
-const FALLBACK_STATUSES = new Set([429, 503]);
+const FALLBACK_STATUSES = new Set([404, 429, 503]);
 
 /**
  * Route an LLM call to the appropriate provider.
  *
  * - Gemini models go to the Gemini provider.
  * - Non-Gemini models go to OpenRouter directly (first-class, not fallback).
- * - If Gemini fails with 429 (quota) or 503 (service unavailable),
+ * - If Gemini fails with 404 (model not found), 429 (quota), or 503 (service unavailable),
  *   automatically retries with OpenRouter using the configured fallback model.
  * - All other errors (400, 401, 500, etc.) propagate immediately so real
  *   bugs are not silently hidden behind a fallback.
@@ -58,8 +58,9 @@ export async function routedChat(params: LLMCallParams): Promise<LLMResponse> {
             throw error;
         }
 
+        const reason = status === 404 ? "model not found" : `HTTP ${status}`;
         console.log(
-            `[Router] Gemini failed (${status}) — falling back to OpenRouter (${ENV.OPENROUTER_MODEL})...`,
+            `[Router] Gemini failed (${reason}) — falling back to OpenRouter (${ENV.OPENROUTER_MODEL})...`,
         );
 
         try {

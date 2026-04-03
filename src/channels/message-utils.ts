@@ -54,6 +54,12 @@ export function friendlyError(error: unknown, context: string): string {
     if (lower.includes("401") || lower.includes("unauthorized") || lower.includes("api key")) {
         return "🔑 API authentication issue. Check your API keys in the config.";
     }
+    if (lower.includes("403") || lower.includes("forbidden") || lower.includes("permission")) {
+        return "🚫 Permission denied by the AI provider. The model may not be accessible with your API key.";
+    }
+    if (lower.includes("404") || lower.includes("not found") || lower.includes("model") && lower.includes("does not exist")) {
+        return "🤖 The selected AI model is unavailable or not found. Use /model to switch to a different one (e.g. /model flash-2.5).";
+    }
     if (lower.includes("timeout") || lower.includes("etimedout") || lower.includes("econnreset")) {
         return "⏱️ The request timed out. The server might be slow — please try again.";
     }
@@ -64,7 +70,8 @@ export function friendlyError(error: unknown, context: string): string {
         return "🗄️ Database error. Memory features may be temporarily unavailable.";
     }
 
-    // Generic fallback — show context but not the raw error
+    // Generic fallback — log and show a brief safe hint about the actual error
     console.error(`[Channel] ${context} error:`, error);
-    return `❌ Something went wrong during ${context}. The issue has been logged.`;
+    const hint = msg.length > 0 && msg.length <= 120 ? ` (${msg})` : "";
+    return `❌ Something went wrong during ${context}. The issue has been logged.${hint}`;
 }

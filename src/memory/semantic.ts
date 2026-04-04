@@ -19,6 +19,7 @@ import { getSupabase } from "../lib/supabase.js";
 import { getAI } from "../lib/gemini.js";
 import { routedChat } from "../lib/router.js";
 import { ENV } from "../config.js";
+import { getRuntimeConfig } from "../lib/config-sync.js";
 
 /**
  * Generate an embedding for a given text using Gemini.
@@ -263,7 +264,7 @@ Return ONLY the JSON array, no other text.`;
 
   try {
     const response = await routedChat({
-      model: ENV.GEMINI_MODEL,
+      model: getRuntimeConfig().primaryModel,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.2,
     });

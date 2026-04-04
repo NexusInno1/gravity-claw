@@ -10,6 +10,7 @@ import { routedChat } from "../lib/router.js";
 import { executeWebSearch } from "../tools/web_search.js";
 import { executeSerperSearch } from "../tools/serper_search.js";
 import { ENV } from "../config.js";
+import { getRuntimeConfig } from "../lib/config-sync.js";
 import { buildCoreMemoryPrompt, getCoreMemory } from "../memory/core.js";
 import { saveMessage } from "../memory/buffer.js";
 import { HeartbeatJob } from "./scheduler.js";
@@ -64,7 +65,7 @@ Keep it SHORT and punchy. No fluff, no filler. Total message should be under 300
 
   try {
     const response = await routedChat({
-      model: ENV.GEMINI_MODEL,
+      model: getRuntimeConfig().primaryModel,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
     });

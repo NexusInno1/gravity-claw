@@ -41,6 +41,12 @@ export interface LLMToolCall {
     name: string;
     /** Parsed arguments keyed by parameter name. */
     args: Record<string, unknown>;
+    /**
+     * Internal: raw Gemini SDK parts for this call (functionCall + thoughtSignature).
+     * Gemini 3 requires these to be echoed back verbatim on the next turn.
+     * Only populated by gemini.ts — ignored by all other providers.
+     */
+    _rawParts?: unknown[];
 }
 
 /** The result of executing a single tool call. */

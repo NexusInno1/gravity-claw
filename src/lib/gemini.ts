@@ -153,12 +153,19 @@ function messagesToContents(messages: LLMMessage[]): {
     // Outgoing tool calls (assistant → model)
     if (msg.toolCalls && msg.toolCalls.length > 0) {
       for (const tc of msg.toolCalls) {
-        parts.push({
-          functionCall: {
-            name: tc.name,
-            args: tc.args,
-          },
-        });
+        if (tc._rawParts) {
+          // Gemini 3: echo the exact parts (functionCall + thoughtSignature)
+          parts.push(...(tc._rawParts as Part[]));
+        } else {
+          parts.push({
+            functionCall: {
+              // @ts-ignore — 'id' exists at runtime in Gemini 3 SDK responses
+              id: tc.id,
+              name: tc.name,
+              args: tc.args,
+            },
+          });
+        }
       }
     }
 
@@ -167,6 +174,8 @@ function messagesToContents(messages: LLMMessage[]): {
       for (const tr of msg.toolResults) {
         parts.push({
           functionResponse: {
+            // @ts-ignore — 'id' is required by Gemini 3 to match the functionCall
+            id: tr.callId,
             name: tr.name,
             response: { result: tr.content },
           },
@@ -212,10 +221,16 @@ function parseGeminiResponse(
   // Tool call parts
   const fnCallParts = parts.filter((p) => p.functionCall);
   if (fnCallParts.length > 0) {
-    result.toolCalls = fnCallParts.map((p, i) => ({
-      id: `gemini_call_${p.functionCall!.name}_${i}`,
+    result.toolCalls = fnCallParts.map((p) => ({
+      id: (p.functionCall as any).id,
       name: p.functionCall!.name!,
       args: (p.functionCall!.args as Record<string, unknown>) || {},
+      // Stash the raw parts (functionCall + thoughtSignature) for the next turn
+      _rawParts: parts.filter(
+        (rp) =>
+          (rp.functionCall && (rp.functionCall as any).id === (p.functionCall as any).id) ||
+          rp.thoughtSignature,
+      ),
     }));
   }
 

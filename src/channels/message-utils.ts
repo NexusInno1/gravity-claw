@@ -70,8 +70,7 @@ export function friendlyError(error: unknown, context: string): string {
         return "🗄️ Database error. Memory features may be temporarily unavailable.";
     }
 
-    // Generic fallback — log and show a brief safe hint about the actual error
+    // Generic fallback — log internally but never expose raw error text to users
     console.error(`[Channel] ${context} error:`, error);
-    const hint = msg.length > 0 && msg.length <= 120 ? ` (${msg})` : "";
-    return `❌ Something went wrong during ${context}. The issue has been logged.${hint}`;
+    return `❌ Something went wrong during ${context}. The issue has been logged.`;
 }

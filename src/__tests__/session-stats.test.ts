@@ -17,9 +17,9 @@ import {
 
 describe("estimateCost", () => {
     it("calculates Gemini 2.5 Flash cost correctly", () => {
-        // 1,000,000 prompt @ $0.075 + 1,000,000 completion @ $0.30
+        // 1,000,000 prompt @ $0.30 + 1,000,000 completion @ $2.50
         const cost = estimateCost("gemini-2.5-flash", 1_000_000, 1_000_000);
-        expect(cost).toBeCloseTo(0.075 + 0.30, 4);
+        expect(cost).toBeCloseTo(0.30 + 2.50, 4);
     });
 
     it("handles small token counts without floating point errors", () => {

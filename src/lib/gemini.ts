@@ -306,15 +306,18 @@ class GeminiProvider implements LLMProvider {
         if (status === 429) {
           const rotated = rotateKey();
           if (!rotated) {
-            // All keys exhausted — wait for quota reset, then retry
-            const delay = getRetryDelay(error);
-            console.log(
-              `[Gemini] All keys exhausted. Waiting ${delay / 1000}s for quota reset...`,
+            // All keys exhausted — do NOT block the event loop for 30-60s.
+            // Wait a short fixed delay (5s) to avoid hammering the API, then
+            // re-throw so the router can immediately fall back to OpenRouter.
+            // The exhaustion state is preserved; keys will auto-reset after
+            // RESET_INTERVAL_MS (60s) via the next getAI() call.
+            const shortDelay = 5_000;
+            console.warn(
+              `[Gemini] All keys exhausted. Yielding for ${shortDelay / 1000}s then re-throwing for OpenRouter fallback.`,
             );
-            await sleep(delay);
-            exhaustedKeys.clear();
-            lastResetTime = Date.now();
-            continue;
+            await sleep(shortDelay);
+            // Re-throw with status 429 intact so router fallback activates
+            throw lastError;
           }
           await sleep(500);
           continue;

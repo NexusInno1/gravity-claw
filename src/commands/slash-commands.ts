@@ -184,11 +184,40 @@ export interface SlashCommandResult {
  * @param chatId The chat ID for scoping session data
  * @returns SlashCommandResult — if handled is false, route to the LLM as normal
  */
+/**
+ * Plain-text keyword aliases → equivalent slash command.
+ * Exact single-word matches only (case-insensitive).
+ * Lets users type "Heartbeat" or "Status" without the slash.
+ */
+const PLAIN_TEXT_ALIASES: Record<string, string> = {
+  "heartbeat": "/heartbeat",
+  "schedule": "/heartbeat",
+  "scheduler": "/heartbeat",
+  "status": "/status",
+  "stats": "/status",
+  "usage": "/usage",
+  "tokens": "/usage",
+  "help": "/help",
+  "commands": "/help",
+  "agents": "/agents",
+  "compact": "/compact",
+  "new": "/new",
+  "reset": "/reset",
+  "clear": "/new",
+  "model": "/model",
+};
+
 export async function handleSlashCommand(
   text: string,
   chatId: string,
 ): Promise<SlashCommandResult> {
-  const trimmed = text.trim();
+  let trimmed = text.trim();
+
+  // Plain-text alias check (exact single-word match, e.g. "Heartbeat", "Status")
+  const lowerTrimmed = trimmed.toLowerCase();
+  if (PLAIN_TEXT_ALIASES[lowerTrimmed]) {
+    trimmed = PLAIN_TEXT_ALIASES[lowerTrimmed];
+  }
 
   // Slash commands must start with '/'
   if (!trimmed.startsWith("/")) {

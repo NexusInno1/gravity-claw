@@ -13,6 +13,7 @@ import { mcpManager } from "./mcp/mcp-manager.js";
 import { handleSlashCommand, getEffectiveModel } from "./commands/slash-commands.js";
 import { getProviderName } from "./lib/router.js";
 import { startWebhookServer, stopWebhookServer } from "./channels/webhook.js";
+import { restoreReminders } from "./tools/set_reminder.js";
 
 console.log("============== Gravity Claw ==============");
 console.log("Initializing secure local environment...");
@@ -109,7 +110,8 @@ async function start() {
     }
   }
 
-
+  // Restore pending reminders from Supabase (must happen after channel init)
+  await restoreReminders();
 
   if (activeChannels.length === 0) {
     throw new Error("No channels started — check your .env for bot tokens.");

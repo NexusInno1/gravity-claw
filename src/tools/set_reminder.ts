@@ -1,11 +1,21 @@
 /**
  * set_reminder tool — Schedule a one-time reminder.
  *
- * Uses setTimeout internally. Reminders survive only while the bot
- * process is running (not persisted across restarts).
+ * Reminders are persisted to Supabase so they survive bot restarts.
+ * On startup, call `restoreReminders()` to reload and reschedule
+ * any pending reminders from the database.
+ *
+ * Table: reminders
+ *   id         uuid primary key default gen_random_uuid()
+ *   chat_id    text not null
+ *   message    text not null
+ *   fire_at    timestamptz not null
+ *   fired      boolean default false
+ *   created_at timestamptz default now()
  */
 
 import { Type, Tool } from "@google/genai";
+import { getSupabase } from "../lib/supabase.js";
 
 export const setReminderDefinition: Tool = {
   functionDeclarations: [
@@ -33,9 +43,8 @@ export const setReminderDefinition: Tool = {
   ],
 };
 
-/**
- * Callback type — the bot handler sets this so reminders can send messages.
- */
+// ─── Callback ─────────────────────────────────────────────────────
+
 type ReminderSendFn = (chatId: string, message: string) => Promise<void>;
 
 let sendCallback: ReminderSendFn | null = null;
@@ -47,6 +56,93 @@ export function initReminderCallback(fn: ReminderSendFn): void {
   sendCallback = fn;
   console.log("[Reminder] Callback registered.");
 }
+
+// ─── In-memory tracking ───────────────────────────────────────────
+
+interface PendingReminder {
+  id: string;
+  chatId: string;
+  message: string;
+  fireAt: Date;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const pending = new Map<string, PendingReminder>();
+
+// ─── Helpers ─────────────────────────────────────────────────────
+
+function scheduleTimer(
+  id: string,
+  chatId: string,
+  message: string,
+  fireAt: Date,
+): void {
+  const delayMs = Math.max(0, fireAt.getTime() - Date.now());
+
+  const timer = setTimeout(async () => {
+    pending.delete(id);
+    // Mark as fired in DB
+    const sb = getSupabase();
+    if (sb) {
+      const { error } = await sb.from("reminders").update({ fired: true }).eq("id", id);
+      if (error) console.error("[Reminder] Failed to mark fired in DB:", error.message);
+    }
+
+    if (!sendCallback) return;
+    try {
+      await sendCallback(chatId, `⏰ **Reminder:** ${message}`);
+      console.log(`[Reminder] Fired: "${message}" → chat ${chatId}`);
+    } catch (err) {
+      console.error(`[Reminder] Failed to send:`, err);
+    }
+  }, delayMs);
+
+  pending.set(id, { id, chatId, message, fireAt, timer });
+}
+
+// ─── Restore on startup ───────────────────────────────────────────
+
+/**
+ * Load all unfired reminders from Supabase and reschedule them.
+ * Call this once at startup — AFTER initReminderCallback().
+ */
+export async function restoreReminders(): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+
+  try {
+    const { data, error } = await sb
+      .from("reminders")
+      .select("id, chat_id, message, fire_at")
+      .eq("fired", false)
+      .gt("fire_at", new Date().toISOString());
+
+    if (error) {
+      // Table may not exist yet — that's fine
+      if (error.message?.includes("does not exist") || error.code === "42P01") {
+        console.log("[Reminder] 'reminders' table not found — skipping restore. Create it to enable persistence.");
+      } else {
+        console.warn("[Reminder] Failed to restore reminders:", error.message);
+      }
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      console.log("[Reminder] No pending reminders to restore.");
+      return;
+    }
+
+    for (const row of data) {
+      scheduleTimer(row.id, row.chat_id, row.message, new Date(row.fire_at));
+    }
+
+    console.log(`[Reminder] ✅ Restored ${data.length} pending reminder(s).`);
+  } catch (err) {
+    console.error("[Reminder] Unexpected restore error:", err);
+  }
+}
+
+// ─── Execute ─────────────────────────────────────────────────────
 
 /**
  * Execute the set_reminder tool.
@@ -73,25 +169,84 @@ export async function executeSetReminder(
     return "Error: Reminders can be set for up to 24 hours (1440 minutes). For longer durations, ask me to set it again later.";
   }
 
-  const delayMs = Math.round(minutes * 60 * 1000);
-  const fireAt = new Date(Date.now() + delayMs);
+  const fireAt = new Date(Date.now() + Math.round(minutes * 60 * 1000));
   const fireAtStr = fireAt.toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
     timeStyle: "short",
     dateStyle: "short",
   });
 
-  setTimeout(async () => {
+  // ── Persist to Supabase ──────────────────────────────────────
+  const sb = getSupabase();
+  let reminderId = crypto.randomUUID();
+
+  if (sb) {
     try {
-      await sendCallback!(chatId, `⏰ **Reminder:** ${message}`);
-      console.log(`[Reminder] Fired: "${message}" → chat ${chatId}`);
+      const { data, error } = await sb
+        .from("reminders")
+        .insert({
+          chat_id: chatId,
+          message,
+          fire_at: fireAt.toISOString(),
+          fired: false,
+        })
+        .select("id")
+        .single();
+
+      if (error) {
+        if (error.message?.includes("does not exist") || error.code === "42P01") {
+          console.warn("[Reminder] 'reminders' table not found — reminder will not survive restarts.");
+        } else {
+          console.error("[Reminder] Failed to persist:", error.message);
+        }
+      } else if (data?.id) {
+        reminderId = data.id;
+      }
     } catch (err) {
-      console.error(`[Reminder] Failed to send:`, err);
+      console.error("[Reminder] Persist error:", err);
     }
-  }, delayMs);
+  }
+
+  // ── Schedule in-process timer ────────────────────────────────
+  scheduleTimer(reminderId, chatId, message, fireAt);
 
   console.log(
-    `[Reminder] Scheduled "${message}" in ${minutes}min for chat ${chatId}`,
+    `[Reminder] Scheduled "${message}" at ${fireAt.toISOString()} for chat ${chatId}`,
   );
   return `Reminder set! I'll remind you "${message}" at ${fireAtStr} (in ${minutes} minute${minutes === 1 ? "" : "s"}).`;
+}
+
+// ─── List pending reminders ───────────────────────────────────────
+
+/**
+ * Return a formatted list of all pending (in-process) reminders.
+ * Used by the /reminders slash command.
+ */
+export function listPendingReminders(): string {
+  if (pending.size === 0) {
+    return "No pending reminders. Set one by asking me: \"Remind me to [task] in [X] minutes.\"";
+  }
+
+  const now = Date.now();
+  const lines: string[] = ["⏰ **Pending Reminders**\n"];
+
+  const sorted = Array.from(pending.values()).sort(
+    (a, b) => a.fireAt.getTime() - b.fireAt.getTime(),
+  );
+
+  for (const r of sorted) {
+    const fireAtStr = r.fireAt.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      timeStyle: "short",
+      dateStyle: "short",
+    });
+    const minsLeft = Math.ceil((r.fireAt.getTime() - now) / 60000);
+    const timeLeft = minsLeft < 60
+      ? `${minsLeft}m`
+      : `${Math.floor(minsLeft / 60)}h ${minsLeft % 60}m`;
+
+    lines.push(`• "${r.message}"\n  🕐 ${fireAtStr} (in ${timeLeft})`);
+  }
+
+  return lines.join("\n");
 }

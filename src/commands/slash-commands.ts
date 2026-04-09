@@ -205,6 +205,9 @@ const PLAIN_TEXT_ALIASES: Record<string, string> = {
   "reset": "/reset",
   "clear": "/new",
   "model": "/model",
+  "forget": "/forget",
+  "memories": "/memories",
+  "reminders": "/reminders",
 };
 
 export async function handleSlashCommand(
@@ -261,6 +264,15 @@ export async function handleSlashCommand(
 
     case "/help":
       return handleHelp();
+
+    case "/forget":
+      return handleForget(args);
+
+    case "/memories":
+      return handleMemories();
+
+    case "/reminders":
+      return handleReminders();
 
     default:
       // Unknown slash command — let the LLM handle it naturally
@@ -540,5 +552,40 @@ function handleAgents(): SlashCommandResult {
     "_Tasks are matched to the best agent automatically._",
   ].join("\n");
 
+  return { handled: true, response };
+}
+
+// ─── Memory & Reminders Commands ──────────────────────────────────
+
+async function handleForget(args: string[]): Promise<SlashCommandResult> {
+  if (args.length === 0) {
+    return { handled: true, response: "Usage: `/forget <key>`\n\nRemoves a fact from core memory. Use `/memories` to see your keys." };
+  }
+
+  const key = args[0];
+  const { deleteCoreMemory, getCoreMemory } = await import("../memory/core.js");
+
+  if (!getCoreMemory(key)) {
+    return { handled: true, response: `No memory found with the key \`${key}\`.` };
+  }
+
+  await deleteCoreMemory(key);
+  return { handled: true, response: `✅ Forgot memory: \`${key}\`` };
+}
+
+async function handleMemories(): Promise<SlashCommandResult> {
+  const { buildCoreMemoryPrompt } = await import("../memory/core.js");
+  const memoriesStr = buildCoreMemoryPrompt();
+
+  if (!memoriesStr) {
+    return { handled: true, response: "📭 Your core memory is completely empty.\n\nUse `/pin <key> <value>` to pin long-term traits, preferences, or goals." };
+  }
+
+  return { handled: true, response: `🧠 **Your Core Memory**\n\n${memoriesStr.replace("## Core Memory (Always Active)\n", "")}\n\n_Use \`/forget <key>\` to remove an item._` };
+}
+
+async function handleReminders(): Promise<SlashCommandResult> {
+  const { listPendingReminders } = await import("../tools/set_reminder.js");
+  const response = listPendingReminders();
   return { handled: true, response };
 }

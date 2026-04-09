@@ -41,12 +41,55 @@ export function getRuntimeConfig(): Readonly<RuntimeConfig> {
     return runtimeConfig;
 }
 
+// ─── Model Validation ────────────────────────────────────────────
+
+/**
+ * Common model name typos → correct API identifiers.
+ * Users often set "gemini-3.0-flash" in Mission Control but the
+ * real API model name is "gemini-3-flash-preview".
+ */
+const MODEL_CORRECTIONS: Record<string, string> = {
+    "gemini-3.0-flash": "gemini-3-flash-preview",
+    "gemini-3.0-flash-preview": "gemini-3-flash-preview",
+    "gemini-3-flash": "gemini-3-flash-preview",
+    "gemini-3.0-pro": "gemini-3.1-pro-preview",
+    "gemini-3.0-pro-preview": "gemini-3.1-pro-preview",
+    "gemini-3.1-pro": "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite": "gemini-3.1-flash-lite-preview",
+    "gemini-2.5-flash-preview": "gemini-2.5-flash",
+    "gemini-2.5-pro-preview": "gemini-2.5-pro",
+};
+
+function validateModel(model: string): string {
+    const lower = model.toLowerCase().trim();
+
+    // Check corrections map
+    if (MODEL_CORRECTIONS[lower]) {
+        const corrected = MODEL_CORRECTIONS[lower];
+        console.warn(
+            `[ConfigSync] ⚠️ Model "${model}" corrected → "${corrected}" (original name is not a valid Gemini API model)`,
+        );
+        return corrected;
+    }
+
+    // Known valid patterns: gemini-*, or openrouter format (provider/model)
+    if (lower.startsWith("gemini-") || lower.includes("/")) {
+        return model;
+    }
+
+    // Completely unrecognized — fall back to ENV default
+    console.warn(
+        `[ConfigSync] ⚠️ Model "${model}" is not recognized. Falling back to "${ENV.GEMINI_MODEL}".`,
+    );
+    return ENV.GEMINI_MODEL;
+}
+
 // ─── Config Parsing ──────────────────────────────────────────────
 
 function applyConfigRow(key: string, value: string): void {
     switch (key) {
         case "primary_model":
-            runtimeConfig.primaryModel = value;
+            runtimeConfig.primaryModel = validateModel(value);
             break;
         case "temperature":
             runtimeConfig.temperature = parseFloat(value) || 0.7;

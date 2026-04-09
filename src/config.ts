@@ -99,7 +99,7 @@ export const ENV = {
   TELEGRAM_BOT_TOKEN: botToken,
 
   GEMINI_API_KEYS: geminiKeys,
-  GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-3-flash-preview",
+  GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-2.5-flash",
   ALLOWED_USER_IDS: allowedUsers,
   HEARTBEAT_CHAT_ID: process.env.HEARTBEAT_CHAT_ID || "",
   SUPABASE_URL: supabaseUrl,

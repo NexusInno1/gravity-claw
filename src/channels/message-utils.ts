@@ -57,7 +57,7 @@ export function friendlyError(error: unknown, context: string): string {
     if (lower.includes("403") || lower.includes("forbidden") || lower.includes("permission")) {
         return "🚫 Permission denied by the AI provider. The model may not be accessible with your API key.";
     }
-    if (lower.includes("404") || lower.includes("not found") || lower.includes("model") && lower.includes("does not exist")) {
+    if (lower.includes("404") || (lower.includes("model") && lower.includes("not found")) || (lower.includes("model") && lower.includes("does not exist"))) {
         return "🤖 The selected AI model is unavailable or not found. Use /model to switch to a different one (e.g. /model flash-2.5).";
     }
     if (lower.includes("timeout") || lower.includes("etimedout") || lower.includes("econnreset")) {

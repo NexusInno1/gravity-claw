@@ -146,15 +146,19 @@ ${transcript}`,
 
     const summary = response.text?.trim() || "";
 
-    if (summary) {
-      // Save rolling summary to core memory
-      await setCoreMemory(`rolling_summary_${chatId}`, summary);
-      console.log(
-        `[Buffer] Compacted ${oldMessages.length} messages into rolling summary.`,
-      );
+    if (!summary) {
+      // LLM failed to produce a summary — do NOT delete messages (data loss prevention)
+      console.warn("[Buffer] Compaction aborted: LLM returned empty summary. Messages preserved.");
+      return;
     }
 
-    // Delete the old messages
+    // Save rolling summary to core memory FIRST (before deleting anything)
+    await setCoreMemory(`rolling_summary_${chatId}`, summary);
+    console.log(
+      `[Buffer] Compacted ${oldMessages.length} messages into rolling summary.`,
+    );
+
+    // Only NOW delete the old messages (summary is safely persisted)
     const idsToDelete = oldMessages.map((m) => m.id);
     const { error: deleteError } = await sb
       .from("messages")

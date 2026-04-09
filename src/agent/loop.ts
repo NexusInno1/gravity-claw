@@ -103,6 +103,7 @@ import { recordTokenUsage } from "../commands/session-stats.js";
 import { getEffectiveModel } from "../commands/slash-commands.js";
 
 const MAX_ITERATIONS = 5;
+const MAX_LOOP_TIMEOUT_MS = 120_000; // 120 seconds hard wall-clock limit
 
 // ─── Soul (loaded once at startup) ───────────────────────────────
 
@@ -399,6 +400,20 @@ export async function runAgentLoop(
   deniedToolNames?: string[],
   maxIterations?: number,
 ): Promise<string> {
+  // Hard wall-clock timeout to prevent runaway tool chains
+  const timeoutPromise = new Promise<string>((_, reject) =>
+    setTimeout(() => reject(new Error("Agent loop timed out (120s limit)")), MAX_LOOP_TIMEOUT_MS),
+  );
+  return Promise.race([runAgentLoopInner(userMessage, chatId, allowedToolNames, deniedToolNames, maxIterations), timeoutPromise]);
+}
+
+async function runAgentLoopInner(
+  userMessage: string,
+  chatId: string,
+  allowedToolNames?: string[],
+  deniedToolNames?: string[],
+  maxIterations?: number,
+): Promise<string> {
   const iterLimit = maxIterations ?? MAX_ITERATIONS;
 
   // Load Tier 2 recent messages as conversation history (before saving current)
@@ -510,7 +525,7 @@ export async function runAgentLoop(
       }
 
       // Trigger background fact extraction (Tier 3 — async, never blocks)
-      triggerFactExtraction(userMessage, finalResponse || "");
+      triggerFactExtraction(userMessage, finalResponse || "", chatId);
 
       return finalResponse || "No text response generated.";
     }
@@ -541,7 +556,23 @@ export async function runAgentLoopWithImage(
   imageBase64: string,
   mimeType: string,
 ): Promise<string> {
+  // Hard wall-clock timeout to prevent runaway tool chains
+  const timeoutPromise = new Promise<string>((_, reject) =>
+    setTimeout(() => reject(new Error("Agent loop timed out (120s limit)")), MAX_LOOP_TIMEOUT_MS),
+  );
+  return Promise.race([runAgentLoopWithImageInner(userMessage, chatId, imageBase64, mimeType), timeoutPromise]);
+}
+
+async function runAgentLoopWithImageInner(
+  userMessage: string,
+  chatId: string,
+  imageBase64: string,
+  mimeType: string,
+): Promise<string> {
   const iterLimit = MAX_ITERATIONS;
+
+  // Load Tier 2 recent messages for conversation context (before saving current)
+  const recentMessages = await getRecentMessages(chatId);
 
   // Save a text note to buffer (we can't store binary images)
   await saveMessage(chatId, "user", `[Sent an image] ${userMessage}`);
@@ -550,14 +581,18 @@ export async function runAgentLoopWithImage(
 
   const { schemas: availableTools, permittedNames } = getAvailableTools();
 
-  // Build conversation — first message carries the inline image
-  const messages: LLMMessage[] = [
-    {
-      role: "user",
-      content: userMessage,
-      inlineImages: [{ data: imageBase64, mimeType }],
-    },
-  ];
+  // Build conversation — prepend history, then append image message
+  const messages: LLMMessage[] = recentMessages.map((msg) => ({
+    role: msg.role as "user" | "assistant",
+    content: msg.content,
+  }));
+
+  // Append current user message with inline image (it wasn't in DB when we loaded)
+  messages.push({
+    role: "user",
+    content: userMessage,
+    inlineImages: [{ data: imageBase64, mimeType }],
+  });
 
   let iterationCount = 0;
 
@@ -639,7 +674,7 @@ export async function runAgentLoopWithImage(
         await saveMessage(chatId, "model", finalResponse);
       }
 
-      triggerFactExtraction(userMessage, finalResponse || "");
+      triggerFactExtraction(userMessage, finalResponse || "", chatId);
       return finalResponse || "No text response generated.";
     }
   }

@@ -209,19 +209,15 @@ export class TelegramChannel implements Channel {
         let extractedText: string;
 
         if (isPdf) {
-          // Basic PDF text extraction — parse text between stream/endstream markers
-          // For a full-featured solution, add pdf-parse dependency
-          const raw = buffer.toString("utf-8");
-          // Extract readable text segments (skip binary garbage)
-          extractedText = raw
-            .split("\n")
-            .filter((line) => {
-              // Keep lines that are mostly printable ASCII
-              const printable = line.replace(/[^\x20-\x7E]/g, "");
-              return printable.length > line.length * 0.6 && printable.length > 10;
-            })
-            .join("\n")
-            .trim();
+          // Use pdf-parse for proper PDF text extraction
+          try {
+            const pdfParse = (await import("pdf-parse")).default;
+            const pdfData = await pdfParse(buffer);
+            extractedText = pdfData.text?.trim() || "";
+          } catch (pdfErr) {
+            console.error("[Telegram] PDF parse error:", pdfErr);
+            extractedText = "";
+          }
 
           if (!extractedText || extractedText.length < 50) {
             clearInterval(typingInterval);

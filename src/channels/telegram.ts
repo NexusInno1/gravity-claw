@@ -203,6 +203,11 @@ export class TelegramChannel implements Channel {
       try {
         // Download file from Telegram
         const file = await ctx.api.getFile(doc.file_id);
+        if (!file.file_path) {
+          clearInterval(typingInterval);
+          await ctx.reply("Could not retrieve the file path from Telegram. Please try again.");
+          return;
+        }
         const fileUrl = `https://api.telegram.org/file/bot${ENV.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
         const response = await fetch(fileUrl);
 
@@ -301,6 +306,11 @@ export class TelegramChannel implements Channel {
 
         // Get the file info from Telegram
         const file = await ctx.api.getFile(bestPhoto.file_id);
+        if (!file.file_path) {
+          clearInterval(typingInterval);
+          await ctx.reply("Could not retrieve the image path from Telegram. Please try again.");
+          return;
+        }
         const fileUrl = `https://api.telegram.org/file/bot${ENV.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
 
         // Download the image

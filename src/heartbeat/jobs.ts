@@ -16,7 +16,8 @@ import { saveMessage } from "../memory/buffer.js";
 import { HeartbeatJob } from "./scheduler.js";
 
 /**
- * Morning Check-in — 8:00 AM IST Daily
+ * Morning Check-in — Configurable via HEARTBEAT_MORNING_TIME env var
+ * Default: 08:00 IST
  *
  * 1. Fetches today's global news
  * 2. Checks core memory for context (past goals, preferences)
@@ -93,13 +94,35 @@ Keep it SHORT and punchy. No fluff, no filler. Total message should be under 300
 }
 
 /**
+ * Parse the HEARTBEAT_MORNING_TIME env var (format: "HH:MM").
+ * Falls back to 08:00 if not set or malformed.
+ */
+function parseMorningTime(): { hour: number; minute: number } {
+  const raw = process.env.HEARTBEAT_MORNING_TIME || "08:00";
+  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    console.warn(`[Heartbeat] Invalid HEARTBEAT_MORNING_TIME="${raw}" — using 08:00`);
+    return { hour: 8, minute: 0 };
+  }
+  const hour = parseInt(match[1], 10);
+  const minute = parseInt(match[2], 10);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    console.warn(`[Heartbeat] HEARTBEAT_MORNING_TIME out of range — using 08:00`);
+    return { hour: 8, minute: 0 };
+  }
+  return { hour, minute };
+}
+
+const morningTime = parseMorningTime();
+
+/**
  * All heartbeat jobs.
  */
 export const heartbeatJobs: HeartbeatJob[] = [
   {
     name: "Morning Check-in",
-    hour: 8,
-    minute: 0,
+    hour: morningTime.hour,
+    minute: morningTime.minute,
     execute: morningCheckin,
   },
 ];

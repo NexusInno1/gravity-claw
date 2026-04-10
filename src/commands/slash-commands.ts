@@ -224,6 +224,9 @@ const PLAIN_TEXT_ALIASES: [RegExp, string][] = [
   [/^clear\s+(history|chat|session)$/i, "/new"],
   [/^compact\s+(history|buffer|chat)$/i, "/compact"],
   [/^forget\s+all$/i, "/forget all"],
+  [/^clear\s+(my\s+)?memor(y|ies)$/i, "/clear_memories"],
+  [/^reset\s+memory$/i, "/clear_memories"],
+  [/^wipe\s+(session|history|memory)$/i, "/clear_memories"],
   [/^show\s+help$/i, "/help"],
   [/^all\s+commands$/i, "/help"],
 
@@ -314,6 +317,9 @@ export async function handleSlashCommand(
     case "/reminders":
       return handleReminders();
 
+    case "/clear_memories":
+      return handleClearMemories(chatId);
+
     default:
       // Unknown slash command — let the LLM handle it naturally
       return { handled: false };
@@ -324,7 +330,11 @@ export async function handleSlashCommand(
 
 async function handleStatus(chatId: string): Promise<SlashCommandResult> {
   const messageCount = await getMessageCount(chatId);
-  const response = formatSessionStatus(chatId, messageCount);
+  const { getPendingReminderCount } = await import("../tools/set_reminder.js");
+  const { getCoreMemoryCount } = await import("../memory/core.js");
+  const reminderCount = getPendingReminderCount();
+  const memoryCount = getCoreMemoryCount();
+  const response = formatSessionStatus(chatId, messageCount, reminderCount, memoryCount);
   return { handled: true, response };
 }
 
@@ -485,15 +495,19 @@ function handleHeartbeatSet(args: string[]): SlashCommandResult {
 function handleHelp(): SlashCommandResult {
   const response = [
     "⚡ **Slash Commands**\n",
-    "`/status`          — Session stats: uptime, token usage, buffer size",
+    "`/status`          — Session stats: uptime, token usage, memory & reminder count",
     "`/usage`           — Focused token consumption breakdown",
     "`/new`             — Start fresh: clear history, reset stats & model override",
     "`/compact`         — Compress current buffer into a rolling summary",
+    "`/clear_memories`  — Clear session memory (buffer + summary) but keep core",
     "`/model`           — Show active model or switch it for this session",
     "`/heartbeat`       — Show heartbeat scheduler status",
     "`/heartbeat_set`   — Change morning check-in time (e.g. `/heartbeat_set 09:30`)",
     "`/agents`          — List available sub-agents for delegation",
     "`/pin`             — Save something to permanent core memory",
+    "`/forget`          — Remove a core memory entry (or `/forget all`)",
+    "`/memories`        — View all core memory entries",
+    "`/reminders`       — View pending reminders",
     "`/help`            — Show this message",
     "",
     "_Commands are processed locally and never sent to the LLM._",
@@ -650,4 +664,30 @@ async function handleReminders(): Promise<SlashCommandResult> {
   const { listPendingReminders } = await import("../tools/set_reminder.js");
   const response = listPendingReminders();
   return { handled: true, response };
+}
+
+/**
+ * Clear session-level memory (conversation buffer + rolling summary)
+ * but preserve core memory (long-term identity & preferences).
+ *
+ * This is softer than /new — it doesn't reset stats or model override.
+ */
+async function handleClearMemories(chatId: string): Promise<SlashCommandResult> {
+  const { clearChatHistory, getMessageCount } = await import("../memory/buffer.js");
+
+  const countBefore = await getMessageCount(chatId);
+  await clearChatHistory(chatId);
+
+  return {
+    handled: true,
+    response: [
+      "🧹 **Session Memory Cleared**\n",
+      `Removed **${countBefore}** buffered messages and rolling summary.`,
+      "",
+      "✅ Core memories are **untouched** (use `/forget` to manage those).",
+      "✅ Session stats and model override are **preserved**.",
+      "",
+      "_I'll start fresh context from your next message._",
+    ].join("\n"),
+  };
 }

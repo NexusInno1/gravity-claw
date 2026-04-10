@@ -69,6 +69,11 @@ interface PendingReminder {
 
 const pending = new Map<string, PendingReminder>();
 
+/** Return the number of currently pending reminders. */
+export function getPendingReminderCount(): number {
+  return pending.size;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function scheduleTimer(

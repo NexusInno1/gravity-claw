@@ -343,7 +343,12 @@ export function formatDuration(ms: number): string {
 /**
  * Format the quick session status block shown by /status.
  */
-export function formatSessionStatus(chatId: string, messageCount: number): string {
+export function formatSessionStatus(
+    chatId: string,
+    messageCount: number,
+    reminderCount: number = 0,
+    memoryCount: number = 0,
+): string {
     const stats = getSessionStats(chatId);
     const sessionUptime = formatDuration(Date.now() - stats.sessionStartedAt.getTime());
     const processUptime = formatDuration(Math.round(process.uptime() * 1000));
@@ -356,6 +361,8 @@ export function formatSessionStatus(chatId: string, messageCount: number): strin
         `🤖 **Bot Uptime:**         ${processUptime}`,
         `⏱️ **Session Duration:**   ${sessionUptime}`,
         `💬 **Messages in Buffer:** ${messageCount}`,
+        `🧠 **Core Memories:**      ${memoryCount}`,
+        `⏰ **Pending Reminders:**  ${reminderCount}`,
         `🔢 **LLM Requests:**       ${stats.requestCount}`,
         `⚡ **Avg Latency:**         ${avgLatency}`,
         "",

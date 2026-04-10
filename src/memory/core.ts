@@ -12,6 +12,11 @@ import { getSupabase } from "../lib/supabase.js";
 let cache: Map<string, string> = new Map();
 let cacheLoaded = false;
 
+/** Return the number of entries in the core memory cache. */
+export function getCoreMemoryCount(): number {
+  return cache.size;
+}
+
 /**
  * Load all core memories into the local cache.
  * Called once at startup.

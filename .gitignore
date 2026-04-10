@@ -45,3 +45,7 @@ service-account.json
 # Session data and runtime files
 *.session
 sessions/
+
+# Local-only configs (PM2, MCP) — not needed on Railway
+ecosystem.config.cjs
+mcp.json

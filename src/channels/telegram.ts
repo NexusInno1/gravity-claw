@@ -374,6 +374,23 @@ export class TelegramChannel implements Channel {
         return;
       }
 
+      // ── Reaction / acknowledgement for long tasks ──────────────
+      // Detect messages that likely involve tool use (research, jobs, etc.)
+      // and immediately react + acknowledge so the user knows it's working.
+      const longTaskPattern = /\b(search|research|find|look\s*up|latest|news|job|jobs|hiring|vacancies|analyze|analyse|compare|summarize|summarise|code|write|review|debug|scrape|fetch|browse|read\s+url)\b/i;
+      const isLongTask = !userMessage.startsWith("/") && longTaskPattern.test(userMessage);
+
+      if (isLongTask) {
+        // Set a message reaction emoji (Telegram Bot API)
+        try {
+          await this.bot.api.setMessageReaction(ctx.chat.id, ctx.message.message_id, [
+            { type: "emoji", emoji: "⚡" },
+          ]);
+        } catch {
+          // Reactions may not be supported in all chat types — safe to ignore
+        }
+      }
+
       // Start a typing indicator loop — pulses every 4s
       await ctx.replyWithChatAction("typing");
       const typingInterval = setInterval(() => {
@@ -391,6 +408,15 @@ export class TelegramChannel implements Channel {
         const result = await this.handler(incoming);
         clearInterval(typingInterval);
         await this.sendReply(ctx.chat.id, result);
+
+        // Clear reaction after responding
+        if (isLongTask) {
+          try {
+            await this.bot.api.setMessageReaction(ctx.chat.id, ctx.message.message_id, []);
+          } catch {
+            // Ignore — may not be supported
+          }
+        }
       } catch (error) {
         clearInterval(typingInterval);
         console.error("[Telegram] Error:", error);

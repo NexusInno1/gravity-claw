@@ -186,29 +186,67 @@ export interface SlashCommandResult {
  */
 /**
  * Plain-text keyword aliases → equivalent slash command.
- * Exact single-word matches only (case-insensitive).
- * Lets users type "Heartbeat" or "Status" without the slash.
+ * Supports:
+ *   - Exact single-word matches: "status" → /status
+ *   - Multi-word phrases:  "show status" → /status
+ *   - Prefix matching:     "model info" → /model
+ *   - Common typos/variations: "heartbeat status" → /heartbeat
+ *
+ * Evaluated in order — first match wins. Longer phrases listed first
+ * to avoid a shorter prefix stealing the match.
  */
-const PLAIN_TEXT_ALIASES: Record<string, string> = {
-  "heartbeat": "/heartbeat",
-  "schedule": "/heartbeat",
-  "scheduler": "/heartbeat",
-  "status": "/status",
-  "stats": "/status",
-  "usage": "/usage",
-  "tokens": "/usage",
-  "help": "/help",
-  "commands": "/help",
-  "agents": "/agents",
-  "compact": "/compact",
-  "new": "/new",
-  "reset": "/reset",
-  "clear": "/new",
-  "model": "/model",
-  "forget": "/forget",
-  "memories": "/memories",
-  "reminders": "/reminders",
-};
+const PLAIN_TEXT_ALIASES: [RegExp, string][] = [
+  // Multi-word first (longer patterns before shorter)
+  [/^show\s+(my\s+)?status$/i, "/status"],
+  [/^check\s+(my\s+)?status$/i, "/status"],
+  [/^show\s+(my\s+)?usage$/i, "/usage"],
+  [/^check\s+(my\s+)?usage$/i, "/usage"],
+  [/^token\s*usage$/i, "/usage"],
+  [/^show\s+(my\s+)?model$/i, "/model"],
+  [/^current\s+model$/i, "/model"],
+  [/^which\s+model$/i, "/model"],
+  [/^switch\s+model$/i, "/model"],
+  [/^change\s+model$/i, "/model"],
+  [/^model\s+info$/i, "/model"],
+  [/^heartbeat\s*(status|info)?$/i, "/heartbeat"],
+  [/^scheduler?\s*(status|info)?$/i, "/heartbeat"],
+  [/^show\s+agents?$/i, "/agents"],
+  [/^list\s+agents?$/i, "/agents"],
+  [/^sub\s*agents?$/i, "/agents"],
+  [/^show\s+(my\s+)?memories$/i, "/memories"],
+  [/^list\s+(my\s+)?memories$/i, "/memories"],
+  [/^core\s+memory$/i, "/memories"],
+  [/^show\s+(my\s+)?reminders?$/i, "/reminders"],
+  [/^list\s+(my\s+)?reminders?$/i, "/reminders"],
+  [/^pending\s+reminders?$/i, "/reminders"],
+  [/^start\s+over$/i, "/new"],
+  [/^new\s+(session|chat|conversation)$/i, "/new"],
+  [/^clear\s+(history|chat|session)$/i, "/new"],
+  [/^compact\s+(history|buffer|chat)$/i, "/compact"],
+  [/^forget\s+all$/i, "/forget all"],
+  [/^show\s+help$/i, "/help"],
+  [/^all\s+commands$/i, "/help"],
+
+  // Single-word exact matches (fallback)
+  [/^status$/i, "/status"],
+  [/^stats$/i, "/status"],
+  [/^usage$/i, "/usage"],
+  [/^tokens?$/i, "/usage"],
+  [/^help$/i, "/help"],
+  [/^commands$/i, "/help"],
+  [/^agents?$/i, "/agents"],
+  [/^compact$/i, "/compact"],
+  [/^new$/i, "/new"],
+  [/^reset$/i, "/reset"],
+  [/^clear$/i, "/new"],
+  [/^model$/i, "/model"],
+  [/^forget$/i, "/forget"],
+  [/^memories$/i, "/memories"],
+  [/^reminders?$/i, "/reminders"],
+  [/^heartbeat$/i, "/heartbeat"],
+  [/^schedule$/i, "/heartbeat"],
+  [/^scheduler$/i, "/heartbeat"],
+];
 
 export async function handleSlashCommand(
   text: string,
@@ -216,10 +254,12 @@ export async function handleSlashCommand(
 ): Promise<SlashCommandResult> {
   let trimmed = text.trim();
 
-  // Plain-text alias check (exact single-word match, e.g. "Heartbeat", "Status")
-  const lowerTrimmed = trimmed.toLowerCase();
-  if (PLAIN_TEXT_ALIASES[lowerTrimmed]) {
-    trimmed = PLAIN_TEXT_ALIASES[lowerTrimmed];
+  // Plain-text alias check (regex-based, supports multi-word phrases)
+  for (const [pattern, command] of PLAIN_TEXT_ALIASES) {
+    if (pattern.test(trimmed)) {
+      trimmed = command;
+      break;
+    }
   }
 
   // Slash commands must start with '/'

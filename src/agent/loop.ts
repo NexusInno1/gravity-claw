@@ -215,7 +215,8 @@ const toolRules =
   "Use the delegate tool for deep multi-step work: thorough research (use 'research' agent), " +
   "code generation/review (use 'code' agent), content summarization (use 'summary' agent), " +
   "creative writing (use 'creative' agent), data analysis (use 'analyst' agent), " +
-  "or job searching / job scraping tasks (use 'jobs' agent — it has the apify_job_search tool). " +
+  "job searching / job scraping tasks (use 'jobs' agent — it has the apify_job_search tool), " +
+  "or news/current events/breaking news (use 'news' agent — it aggressively searches for the latest headlines). " +
   "For quick, simple questions — answer directly.";
 
 // ─── System Instruction Builder ──────────────────────────────────

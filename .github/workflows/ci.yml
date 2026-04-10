@@ -26,6 +26,12 @@ jobs:
 
       - name: Run tests with coverage
         run: npm run test:coverage
+        env:
+          TELEGRAM_BOT_TOKEN: test-token-telegram
+          GEMINI_API_KEYS: test-key-1,test-key-2
+          ALLOWED_USER_IDS: "12345"
+          SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

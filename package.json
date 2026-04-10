@@ -1,6 +1,6 @@
 {
   "name": "gravity-claw",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Gravity Claw - A personal AI agent",
   "main": "src/index.ts",
   "type": "module",
@@ -14,7 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@google/genai": "^1.43.0",
+    "@google/genai": "^1.49.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@supabase/supabase-js": "^2.98.0",
     "dotenv": "^16.4.5",

@@ -16,13 +16,17 @@ Gravity Claw is an agentic AI assistant built with TypeScript that runs on Teleg
 
 ### 🛠️ Tool System
 
-| Tool               | Description                                         |
-| ------------------ | --------------------------------------------------- |
-| `web_search`       | Real-time web search via Tavily API                 |
-| `read_url`         | Fetch and extract content from any URL              |
-| `get_current_time` | Timezone-aware current time                         |
-| `remember_fact`    | Explicitly save important facts to long-term memory |
-| `set_reminder`     | Set timed reminders that fire in-chat               |
+| Tool                | Description                                                   |
+| ------------------- | ------------------------------------------------------------- |
+| `web_search`        | Real-time web search via Tavily API                           |
+| `serper_search`     | Google search via Serper API (alternative to Tavily)          |
+| `read_url`          | Fetch and extract content from any URL                        |
+| `browse_page`       | Full browser rendering via Puppeteer for JS-heavy pages       |
+| `get_current_time`  | Timezone-aware current time                                   |
+| `remember_fact`     | Explicitly save important facts to long-term memory           |
+| `set_reminder`      | Set timed reminders that fire in-chat                         |
+| `apify_job_search`  | Search for jobs via Apify scrapers                            |
+| `delegate`          | Delegate a sub-task to a specialised agent profile            |
 
 ### 🖼️ Vision Support
 
@@ -50,27 +54,49 @@ src/
 ├── index.ts              # Entry point — boot sequence & graceful shutdown
 ├── config.ts             # Centralized environment config & validation
 ├── agent/
-│   └── loop.ts           # Core agentic loop with tool calling & memory assembly
-├── bot/
-│   ├── index.ts          # grammY bot setup & middleware
-│   └── handlers.ts       # Message handlers (text, photo, catch-all)
+│   ├── loop.ts           # Core agentic loop with tool calling & memory assembly
+│   ├── profiles.ts       # Agent personality profiles & system prompt builder
+│   └── sub-loop.ts       # Delegated sub-agent execution loop
+├── channels/
+│   ├── telegram.ts       # grammY bot setup, middleware & message handlers
+│   ├── webhook.ts        # HTTP webhook server for external integrations
+│   ├── message-utils.ts  # Telegram message formatting helpers
+│   ├── whitelist.ts      # User ID access control
+│   └── types.ts          # Shared channel types
+├── commands/
+│   ├── slash-commands.ts # All /command handlers (/status, /clear, /reminders…)
+│   └── session-stats.ts  # Per-session token & cost tracking
 ├── heartbeat/
-│   ├── scheduler.ts      # Cron-like heartbeat scheduler
-│   └── jobs.ts           # Heartbeat job definitions
+│   ├── scheduler.ts      # Configurable heartbeat scheduler
+│   └── jobs.ts           # Heartbeat job definitions (news, goals, etc.)
 ├── lib/
 │   ├── gemini.ts         # Gemini client with key rotation & retry logic
 │   ├── openrouter.ts     # OpenRouter fallback provider
+│   ├── llm.ts            # Unified LLM interface
+│   ├── router.ts         # LLM provider routing logic
+│   ├── config-sync.ts    # Runtime config sync from Supabase
+│   ├── tool-bridge.ts    # MCP ↔ native tool bridge
 │   └── supabase.ts       # Supabase client initialization
+├── mcp/
+│   ├── mcp-client.ts     # MCP protocol client
+│   └── mcp-manager.ts    # MCP server lifecycle manager
 ├── memory/
 │   ├── core.ts           # Tier 1 — Core memory (key-value facts)
 │   ├── buffer.ts         # Tier 2 — Conversation buffer & summarization
 │   └── semantic.ts       # Tier 3 — Semantic search & fact extraction
+├── skills/
+│   └── loader.ts         # Dynamic skill loading from Supabase & local files
 └── tools/
+    ├── registry.ts        # Tool registration & discovery
+    ├── web_search.ts      # Tavily web search
+    ├── serper_search.ts   # Google search via Serper API
+    ├── read_url.ts        # URL content fetcher
+    ├── browse_page.ts     # Puppeteer browser tool
     ├── get_current_time.ts
-    ├── web_search.ts
-    ├── read_url.ts
     ├── remember_fact.ts
-    └── set_reminder.ts
+    ├── set_reminder.ts
+    ├── apify_job_search.ts # Job search via Apify
+    └── delegate.ts        # Sub-agent delegation tool
 ```
 
 ---

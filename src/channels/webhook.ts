@@ -9,7 +9,7 @@
  *   Headers: Authorization: Bearer YOUR_WEBHOOK_SECRET
  *   Body: { "message": "Deployment complete ✅" }
  *
- * This lets Gravity Claw act as a notification hub for:
+ * This lets SUNDAY act as a notification hub for:
  *   - CI/CD events (GitHub Actions, Vercel deployments)
  *   - Server monitoring alerts
  *   - Home automation triggers

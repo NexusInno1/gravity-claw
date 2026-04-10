@@ -111,11 +111,11 @@ export async function restoreReminders(): Promise<void> {
   if (!sb) return;
 
   try {
+    // Fetch ALL unfired reminders — including ones that fired while we were offline
     const { data, error } = await sb
       .from("reminders")
       .select("id, chat_id, message, fire_at")
-      .eq("fired", false)
-      .gt("fire_at", new Date().toISOString());
+      .eq("fired", false);
 
     if (error) {
       // Table may not exist yet — that's fine
@@ -132,11 +132,44 @@ export async function restoreReminders(): Promise<void> {
       return;
     }
 
+    const now = new Date();
+    let upcoming = 0;
+    let missed = 0;
+
     for (const row of data) {
-      scheduleTimer(row.id, row.chat_id, row.message, new Date(row.fire_at));
+      const fireAt = new Date(row.fire_at);
+
+      if (fireAt <= now) {
+        // Missed while bot was offline — fire immediately with a note
+        missed++;
+        const id = row.id;
+        const chatId = row.chat_id;
+        const message = row.message;
+
+        // Mark as fired in DB then deliver
+        sb.from("reminders").update({ fired: true }).eq("id", id)
+          .then(({ error: e }) => {
+            if (e) console.error("[Reminder] Failed to mark missed reminder fired:", e.message);
+          });
+
+        // Deliver after a short stagger so bot is fully ready
+        setTimeout(async () => {
+          if (!sendCallback) return;
+          try {
+            await sendCallback(chatId, `⏰ **Missed Reminder** _(delivered late — bot was offline)_:\n${message}`);
+            console.log(`[Reminder] Delivered missed reminder: "${message}" → chat ${chatId}`);
+          } catch (err) {
+            console.error(`[Reminder] Failed to deliver missed reminder:`, err);
+          }
+        }, 3000 + missed * 500); // stagger by 500 ms each
+      } else {
+        // Future reminder — schedule normally
+        upcoming++;
+        scheduleTimer(row.id, row.chat_id, row.message, fireAt);
+      }
     }
 
-    console.log(`[Reminder] ✅ Restored ${data.length} pending reminder(s).`);
+    console.log(`[Reminder] ✅ Restored ${upcoming} upcoming + ${missed} missed reminder(s).`);
   } catch (err) {
     console.error("[Reminder] Unexpected restore error:", err);
   }

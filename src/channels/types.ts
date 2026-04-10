@@ -3,7 +3,7 @@
  *
  * Defines a platform-agnostic interface for messaging channels.
  * Any platform adapter (Telegram, Discord, CLI, etc.) implements
- * the Channel interface to plug into Gravity Claw's agent loop.
+ * the Channel interface to plug into SUNDAY's agent loop.
  */
 
 /**

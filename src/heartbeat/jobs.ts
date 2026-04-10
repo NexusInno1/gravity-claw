@@ -47,7 +47,7 @@ async function morningCheckin(bot: Bot, chatId: string): Promise<void> {
   const previousGoal = getCoreMemory("last_daily_goal");
 
   // 3. Generate morning message via LLM (provider-agnostic)
-  const prompt = `You are Gravity Claw, a sharp personal AI assistant. Generate a concise morning check-in message for your user.
+  const prompt = `You are SUNDAY (Superior Universal Neural Digital Assistant Yield), a sharp personal AI assistant. Generate a concise morning check-in message for your user.
 
 ${coreMemory ? `## What you know about the user:\n${coreMemory}\n` : ""}
 ${previousGoal ? `## Their last stated goal:\n${previousGoal}\n` : ""}

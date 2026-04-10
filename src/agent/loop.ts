@@ -113,7 +113,7 @@ try {
   console.log("[Soul] Loaded personality from soul.md");
 } catch {
   console.warn("[Soul] soul.md not found — using default personality.");
-  soulPrompt = "You are Gravity Claw, a sharp personal AI agent.";
+  soulPrompt = "You are SUNDAY (Superior Universal Neural Digital Assistant Yield), a sharp personal AI agent.";
 }
 
 // ─── Register Built-in Tools ─────────────────────────────────────

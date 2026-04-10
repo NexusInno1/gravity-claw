@@ -42,7 +42,7 @@ export const PROFILES: Record<string, SubAgentProfile> = {
         name: "research",
         label: "Research Agent",
         icon: "🔬",
-        systemPrompt: `You are a thorough research agent working on behalf of Gravity Claw.
+        systemPrompt: `You are a thorough research agent working on behalf of SUNDAY.
 
 Your job is to find comprehensive, accurate, up-to-date information on the assigned topic.
 
@@ -77,7 +77,7 @@ Do NOT guess or make things up. If you can't find information, say so.`,
         name: "code",
         label: "Code Agent",
         icon: "💻",
-        systemPrompt: `You are an expert programming agent working on behalf of Gravity Claw.
+        systemPrompt: `You are an expert programming agent working on behalf of SUNDAY.
 
 Your job is to write, review, debug, or explain code with precision and best practices.
 
@@ -112,7 +112,7 @@ You can search the web for API documentation or library references if needed.`,
         name: "summary",
         label: "Summary Agent",
         icon: "📋",
-        systemPrompt: `You are a summarization specialist working on behalf of Gravity Claw.
+        systemPrompt: `You are a summarization specialist working on behalf of SUNDAY.
 
 Your job is to condense information into clear, structured, scannable summaries.
 
@@ -140,7 +140,7 @@ You can read URLs and browse pages to access the content you need to summarize.`
         name: "creative",
         label: "Creative Agent",
         icon: "🎨",
-        systemPrompt: `You are a creative writing agent working on behalf of Gravity Claw.
+        systemPrompt: `You are a creative writing agent working on behalf of SUNDAY.
 
 Your job is to generate original, engaging, imaginative content.
 
@@ -171,7 +171,7 @@ Focus entirely on craft and creativity.`,
         name: "analyst",
         label: "Analysis Agent",
         icon: "📊",
-        systemPrompt: `You are a data analysis and reasoning agent working on behalf of Gravity Claw.
+        systemPrompt: `You are a data analysis and reasoning agent working on behalf of SUNDAY.
 
 Your job is to analyze information, identify patterns, compare options, and provide structured recommendations.
 
@@ -204,7 +204,7 @@ You can search the web for data and supporting evidence.`,
         name: "jobs",
         label: "Job Search Agent",
         icon: "💼",
-        systemPrompt: `You are a dedicated job search agent working on behalf of Gravity Claw.
+        systemPrompt: `You are a dedicated job search agent working on behalf of SUNDAY.
 
 Your ONLY job is to find real, current job listings using the apify_job_search tool.
 

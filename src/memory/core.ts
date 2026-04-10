@@ -98,6 +98,33 @@ export async function deleteCoreMemory(key: string): Promise<void> {
 }
 
 /**
+ * Clear ALL core memory entries.
+ * Wipes the in-memory cache and deletes all rows from Supabase.
+ * Used by /forget all.
+ */
+export async function clearAllCoreMemories(): Promise<void> {
+  cache.clear();
+
+  const sb = getSupabase();
+  if (!sb) return;
+
+  try {
+    // Supabase requires a filter for DELETE — use neq on a sentinel value
+    const { error } = await sb
+      .from("core_memories")
+      .delete()
+      .neq("key", "__never_matches_this__");
+    if (error) {
+      console.error("[CoreMemory] Failed to clear all:", error.message);
+    } else {
+      console.log("[CoreMemory] All entries cleared.");
+    }
+  } catch (err) {
+    console.error("[CoreMemory] Unexpected error clearing all:", err);
+  }
+}
+
+/**
  * Build the core memory block for the system prompt.
  * Groups entries by prefix for cleaner display.
  */

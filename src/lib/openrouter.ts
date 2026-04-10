@@ -34,7 +34,7 @@ function getClient(): OpenAI {
       apiKey: ENV.OPENROUTER_API_KEY,
       defaultHeaders: {
         "HTTP-Referer": "https://gravityclaw.dev",
-        "X-OpenRouter-Title": "Gravity Claw",
+        "X-OpenRouter-Title": "SUNDAY",
       },
     });
   }

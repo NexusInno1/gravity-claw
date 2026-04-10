@@ -261,7 +261,7 @@ For each fact, provide:
 - type: "fact" or "event"
 - importance: 1-10 (only include if >= 4)
 - category: one of "personal", "project", "preference", "goal", "event", "general"
-- tags: array of relevant keywords/project names (e.g. ["gravity-claw", "react"])
+- tags: array of relevant keywords/project names (e.g. ["sunday", "react"])
 
 Return JSON array. If nothing worth saving, return empty array [].
 

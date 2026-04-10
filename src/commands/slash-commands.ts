@@ -534,7 +534,7 @@ function handleAgents(): SlashCommandResult {
 
   const response = [
     "🤖 **Sub-Agent Directory**\n",
-    "Gravity Claw automatically delegates to the right specialist.",
+    "SUNDAY automatically delegates to the right specialist.",
     "You don't need to invoke agents manually — just ask naturally.\n",
     "───────────────────────────",
     "",
@@ -559,14 +559,36 @@ function handleAgents(): SlashCommandResult {
 
 async function handleForget(args: string[]): Promise<SlashCommandResult> {
   if (args.length === 0) {
-    return { handled: true, response: "Usage: `/forget <key>`\n\nRemoves a fact from core memory. Use `/memories` to see your keys." };
+    return {
+      handled: true,
+      response: [
+        "🗑 **Forget Memory**\n",
+        "**Usage:**",
+        "`/forget <key>`   — Remove one memory entry",
+        "`/forget all`     — Wipe ALL core memories\n",
+        "Use `/memories` to see your current keys.",
+      ].join("\n"),
+    };
   }
 
-  const key = args[0];
-  const { deleteCoreMemory, getCoreMemory } = await import("../memory/core.js");
+  const { deleteCoreMemory, getCoreMemory, clearAllCoreMemories, buildCoreMemoryPrompt } = await import("../memory/core.js");
+
+  // /forget all — nuclear option
+  if (args[0].toLowerCase() === "all") {
+    await clearAllCoreMemories();
+    return { handled: true, response: "🗑 All core memories cleared." };
+  }
+
+  // Join all args — supports keys with spaces
+  const key = args.join(" ");
 
   if (!getCoreMemory(key)) {
-    return { handled: true, response: `No memory found with the key \`${key}\`.` };
+    // Show available keys to help the user
+    const memoriesStr = buildCoreMemoryPrompt();
+    const keyHint = memoriesStr
+      ? `\n\n**Available keys:**\n${memoriesStr.replace("## Core Memory (Always Active)\n", "")}`
+      : "\n\nYour core memory is empty.";
+    return { handled: true, response: `❌ No memory found with the key \`${key}\`.${keyHint}` };
   }
 
   await deleteCoreMemory(key);

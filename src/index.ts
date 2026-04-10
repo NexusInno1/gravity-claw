@@ -15,7 +15,7 @@ import { getProviderName } from "./lib/router.js";
 import { startWebhookServer, stopWebhookServer } from "./channels/webhook.js";
 import { restoreReminders } from "./tools/set_reminder.js";
 
-console.log("============== Gravity Claw ==============");
+console.log("============== SUNDAY — Superior Universal Neural Digital Assistant Yield ==============");
 console.log("Initializing secure local environment...");
 console.log(`Allowed Users: ${Array.from(ENV.ALLOWED_USER_IDS).join(", ")}`);
 
@@ -124,7 +124,7 @@ async function start() {
 
   // Graceful shutdown handlers
   const shutdown = () => {
-    console.log("🔴 Gravity Claw shutdown signal received — cleaning up...");
+    console.log("🔴 SUNDAY shutdown signal received — cleaning up...");
     stopHeartbeat();
     stopWebhookServer();
     mcpManager.shutdown().catch(() => { });

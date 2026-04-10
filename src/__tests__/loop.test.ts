@@ -1,7 +1,7 @@
 /**
  * Tests for Agent Loop — Core Logic, Tool Execution, Iteration Guard
  *
- * The agent loop is the heart of Gravity Claw. These tests mock the LLM
+ * The agent loop is the heart of SUNDAY. These tests mock the LLM
  * provider (routedChat) and Supabase to validate loop control flow without
  * making real API calls or requiring a database.
  *

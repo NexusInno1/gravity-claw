@@ -186,6 +186,12 @@ export class TelegramChannel implements Channel {
         return;
       }
 
+      // Concurrency guard — one LLM call per chat at a time
+      if (this.inFlight.has(chatId)) {
+        await ctx.reply("⏳ Still working on your previous request — one moment...");
+        return;
+      }
+
       console.log(`[Telegram] Received document "${fileName}" from ${ctx.from.id}`);
 
       await ctx.replyWithChatAction("typing");
@@ -193,6 +199,7 @@ export class TelegramChannel implements Channel {
         ctx.replyWithChatAction("typing").catch(() => { });
       }, 4000);
 
+      this.inFlight.add(chatId);
       try {
         // Download file from Telegram
         const file = await ctx.api.getFile(doc.file_id);
@@ -257,6 +264,8 @@ export class TelegramChannel implements Channel {
         clearInterval(typingInterval);
         console.error("[Telegram] Document handling error:", error);
         await ctx.reply(friendlyError(error, "processing the document"));
+      } finally {
+        this.inFlight.delete(chatId);
       }
     });
 
@@ -270,6 +279,12 @@ export class TelegramChannel implements Channel {
       const caption =
         ctx.message.caption || "What's in this image? Describe and analyze it.";
 
+      // Concurrency guard — one LLM call per chat at a time
+      if (this.inFlight.has(chatId)) {
+        await ctx.reply("⏳ Still working on your previous request — one moment...");
+        return;
+      }
+
       console.log(`[Telegram] Received photo from ${ctx.from.id}`);
 
       // Start typing indicator loop
@@ -278,6 +293,7 @@ export class TelegramChannel implements Channel {
         ctx.replyWithChatAction("typing").catch(() => { });
       }, 4000);
 
+      this.inFlight.add(chatId);
       try {
         // Get the highest resolution photo (last in array)
         const photos = ctx.message.photo;
@@ -324,6 +340,8 @@ export class TelegramChannel implements Channel {
         clearInterval(typingInterval);
         console.error("[Telegram] Photo handling error:", error);
         await ctx.reply(friendlyError(error, "processing the image"));
+      } finally {
+        this.inFlight.delete(chatId);
       }
     });
 

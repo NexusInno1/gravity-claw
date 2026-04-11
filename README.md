@@ -1,8 +1,8 @@
-# 🦾 Gravity Claw
+# 🦾 SUNDAY
 
 **A sharp, no-BS personal AI agent that lives in your Telegram.**
 
-Gravity Claw is an agentic AI assistant built with TypeScript that runs on Telegram. Powered by Google's Gemini API with automatic OpenRouter fallback, it features a 3-tier memory system, real-time web search, vision capabilities, scheduled heartbeat check-ins, and a growing toolkit — all deployable via Docker.
+SUNDAY is an agentic AI assistant built with TypeScript that runs on Telegram. Powered by Google's Gemini API with automatic OpenRouter fallback, it features a 3-tier memory system, real-time web search, vision capabilities, scheduled heartbeat check-ins, and a growing toolkit — all deployable via Docker.
 
 ---
 
@@ -30,7 +30,7 @@ Gravity Claw is an agentic AI assistant built with TypeScript that runs on Teleg
 
 ### 🖼️ Vision Support
 
-Send images directly in Telegram — Gravity Claw can analyze photos, screenshots, documents, and more using Gemini's multimodal capabilities.
+Send images directly in Telegram — SUNDAY can analyze photos, screenshots, documents, and more using Gemini's multimodal capabilities.
 
 ### 💓 Heartbeat Scheduler
 
@@ -115,8 +115,8 @@ src/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/NexusInno1/Gravity-Claw.git
-cd Gravity-Claw
+git clone https://github.com/NexusInno1/SUNDAY.git
+cd SUNDAY
 ```
 
 ### 2. Install Dependencies
@@ -165,10 +165,10 @@ npm start
 
 ```bash
 # Build the image
-docker build -t gravity-claw .
+docker build -t sunday .
 
 # Run with your env file
-docker run -d --env-file .env --name gravity-claw gravity-claw
+docker run -d --env-file .env --name sunday sunday
 ```
 
 ---

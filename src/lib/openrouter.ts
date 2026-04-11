@@ -33,7 +33,7 @@ function getClient(): OpenAI {
       baseURL: "https://openrouter.ai/api/v1",
       apiKey: ENV.OPENROUTER_API_KEY,
       defaultHeaders: {
-        "HTTP-Referer": "https://gravityclaw.dev",
+        "HTTP-Referer": "https://sunday.dev",
         "X-OpenRouter-Title": "SUNDAY",
       },
     });

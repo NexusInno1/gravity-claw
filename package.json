@@ -1,7 +1,7 @@
 {
-  "name": "gravity-claw",
+  "name": "sunday",
   "version": "2.0.0",
-  "description": "Gravity Claw - A personal AI agent",
+  "description": "SUNDAY - A personal AI agent",
   "main": "src/index.ts",
   "type": "module",
   "scripts": {

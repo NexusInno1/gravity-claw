@@ -1,5 +1,5 @@
 -- Create usage_logs table for Mission Control cost tracking
--- Records every LLM API call from Gravity Claw for dashboard visualization
+-- Records every LLM API call from SUNDAY for dashboard visualization
 
 CREATE TABLE IF NOT EXISTS usage_logs (
     id          BIGSERIAL PRIMARY KEY,

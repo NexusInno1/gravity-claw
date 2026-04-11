@@ -20,7 +20,7 @@ create table if not exists tasks (
 
 -- Insert initial task data
 insert into tasks (title, description, status, tag, avatar, avatar_color, dot_color) values
-('Determine next steps', 'Awaiting User instructions', 'in_progress', 'Gravity Claw', 'U', 'avatar-h', 'orange'),
+('Determine next steps', 'Awaiting User instructions', 'in_progress', 'SUNDAY', 'U', 'avatar-h', 'orange'),
 ('Build Digital Office Screen', 'Created visual representation of the team', 'done', 'Mission Control', 'A', 'avatar-a', 'green'),
 ('Add Memory Screen', 'Included memory screen and search functionality', 'done', 'Mission Control', 'A', 'avatar-a', 'green'),
 ('Add Calendar to Mission Control', 'Included calendar section for scheduled tasks', 'done', 'Mission Control', 'A', 'avatar-a', 'green'),

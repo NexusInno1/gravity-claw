@@ -76,7 +76,7 @@ export async function executeReadUrl(url: string): Promise<string> {
     const response = await fetch(url, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (compatible; GravityClaw/1.0; +https://gravityclaw.dev)",
+          "Mozilla/5.0 (compatible; SUNDAY/1.0; +https://sunday.dev)",
         Accept: "text/html,application/xhtml+xml,text/plain,*/*",
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),

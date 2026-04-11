@@ -1,7 +1,7 @@
 /**
  * Tests for Conversation Buffer (Tier 2 Memory)
  *
- * buffer.ts is the most data-critical module in GravityClaw.
+ * buffer.ts is the most data-critical module in SUNDAY.
  * These tests validate:
  *   - Save and retrieve round-trips
  *   - Supabase offline graceful degradation (returns [], no crash)

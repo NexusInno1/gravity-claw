@@ -1,4 +1,4 @@
--- Gravity Claw Memory System — SQL Migration
+-- SUNDAY Memory System — SQL Migration
 -- Run this in the Supabase SQL Editor
 
 -- Enable pgvector extension

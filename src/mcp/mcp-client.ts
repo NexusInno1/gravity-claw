@@ -43,7 +43,7 @@ export class McpClient {
   constructor(private config: McpServerConfig) {
     this.serverName = config.name;
     this.client = new Client(
-      { name: "gravity-claw", version: "1.0.0" },
+      { name: "sunday", version: "1.0.0" },
       { capabilities: {} },
     );
   }

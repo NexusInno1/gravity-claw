@@ -61,6 +61,6 @@ VALUES
 -- Add test Agents to the Office
 INSERT INTO public.office_agents (name, role, avatar, avatar_color, workstation, status, current_activity)
 VALUES 
-('Gravity Claw', 'Core AI Agent', 'GC', 'avatar-a', 'Primary Server', 'Working', 'Processing user requests and organizing memories.'),
+('SUNDAY', 'Core AI Agent', 'SU', 'avatar-a', 'Primary Server', 'Working', 'Processing user requests and organizing memories.'),
 ('Alpha', 'Research Assistant', 'α', 'avatar-f', 'Node 02', 'Online', 'Waiting for tasks...'),
 ('Orion', 'Code Reviewer', 'O', 'avatar-c', 'Node 03', 'Offline', 'Sleeping zZz');

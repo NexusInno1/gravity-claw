@@ -22,7 +22,7 @@
  *   are visible/executable (used by sub-agents).
  */
 
-import { readFileSync } from "fs";
+import { readFileSync, statSync } from "fs";
 import { resolve } from "path";
 
 
@@ -106,13 +106,51 @@ const MAX_ITERATIONS = 5;
 const MAX_LOOP_TIMEOUT_MS = 120_000; // 120 seconds hard wall-clock limit
 
 // ─── Soul (loaded once at startup) ───────────────────────────────
+//
+// IMP-06: soul.md is loaded from the filesystem with no prior validation.
+// A corrupted, oversized, or adversarially crafted file would silently
+// poison the system prompt for EVERY LLM call. Guards added:
+//   1. Max file size of 64 KB — anything larger is almost certainly wrong.
+//   2. NUL-byte rejection — NUL bytes break context parsing and may indicate
+//      binary corruption or an injection attempt.
+//   3. Minimum content check — an empty file would wipe the agent's identity.
+
+const SOUL_MAX_BYTES = 64 * 1024; // 64 KB
 
 let soulPrompt = "";
 try {
-  soulPrompt = readFileSync(resolve(process.cwd(), "soul.md"), "utf-8");
-  console.log("[Soul] Loaded personality from soul.md");
-} catch {
-  console.warn("[Soul] soul.md not found — using default personality.");
+  const soulPath = resolve(process.cwd(), "soul.md");
+  const stat = statSync(soulPath);
+
+  if (stat.size > SOUL_MAX_BYTES) {
+    throw new Error(
+      `soul.md is oversized (${stat.size} bytes, max ${SOUL_MAX_BYTES}). ` +
+      "Refusing to load — truncated system prompts cause undefined behaviour.",
+    );
+  }
+
+  const raw = readFileSync(soulPath, "utf-8");
+
+  if (raw.includes("\x00")) {
+    throw new Error(
+      "soul.md contains NUL bytes — possible file corruption or injection attempt. Refusing to load.",
+    );
+  }
+
+  const trimmed = raw.trim();
+  if (trimmed.length < 20) {
+    throw new Error(
+      `soul.md appears empty or too short (${trimmed.length} chars). ` +
+      "Refusing to use it as a system prompt.",
+    );
+  }
+
+  soulPrompt = trimmed;
+  console.log(`[Soul] Loaded personality from soul.md (${stat.size} bytes).`);
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.warn(`[Soul] soul.md not loaded — ${msg}`);
+  console.warn("[Soul] Falling back to built-in default personality.");
   soulPrompt = "You are SUNDAY (Superior Universal Neural Digital Assistant Yield), a sharp personal AI agent.";
 }
 

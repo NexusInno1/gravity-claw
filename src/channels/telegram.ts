@@ -368,8 +368,13 @@ export class TelegramChannel implements Channel {
 
       console.log(`[Telegram] Received message from ${ctx.from.id}: ${userMessage}`);
 
-      // Concurrency guard — only one LLM call per chat at a time
-      if (this.inFlight.has(chatId) && !userMessage.startsWith("/")) {
+      // Concurrency guard — one handler call per chat at a time.
+      // IMP-05: The previous bypass for slash commands (`&& !userMessage.startsWith("/")`)
+      // was removed. Slash commands run entirely in-process (no LLM) so they are
+      // instantaneous, but bypassing the lock allowed a /new or /clear_memories to
+      // race against an in-flight agent loop and mutate shared state mid-execution.
+      // All message types now acquire the same per-chat lock.
+      if (this.inFlight.has(chatId)) {
         await ctx.reply("⏳ Still working on your previous request — one moment...");
         return;
       }

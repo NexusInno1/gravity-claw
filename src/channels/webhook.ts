@@ -236,9 +236,40 @@ export function startWebhookServer(config: WebhookConfig): void {
             return;
         }
 
-        // Build notification
-        const source = payload.source ? `<b>${payload.source}</b>` : "<b>Webhook</b>";
-        const notification = `🔔 ${source}\n\n${payload.message}`;
+        // IMP-04: Prompt Injection via payload.message
+        // payload.message is delivered to Telegram with parse_mode:"HTML".
+        // A malicious caller (or compromised CI system) could embed HTML tags
+        // that Telegram renders — e.g. <a href="...">, <b>, hidden characters,
+        // or ANSI escape sequences that might affect log parsing.
+        // Strip all HTML tags and control chars before building the notification.
+        const MAX_MESSAGE_LENGTH = 2000;
+        const MAX_SOURCE_LENGTH = 100;
+
+        const sanitizeText = (raw: string): string =>
+            raw
+                .replace(/<[^>]*>/g, "")           // strip all HTML tags
+                .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") // strip control chars
+                .trim();
+
+        const safeMessage = sanitizeText(payload.message).substring(0, MAX_MESSAGE_LENGTH);
+        const safeSource  = payload.source
+            ? sanitizeText(payload.source).substring(0, MAX_SOURCE_LENGTH)
+            : null;
+
+        if (!safeMessage) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "'message' is empty after sanitisation" }));
+            return;
+        }
+
+        // Build notification — use sanitised values only, escape for HTML
+        const escapeHtml = (s: string) =>
+            s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+        const source = safeSource
+            ? `<b>${escapeHtml(safeSource)}</b>`
+            : "<b>Webhook</b>";
+        const notification = `🔔 ${source}\n\n${escapeHtml(safeMessage)}`;
 
         // Send to Telegram with HTML parsing
         try {
@@ -251,7 +282,7 @@ export function startWebhookServer(config: WebhookConfig): void {
             }
 
             console.log(
-                `[Webhook] Received from ${payload.source || "unknown"}: ${payload.message.substring(0, 80)}`,
+                `[Webhook] Received from ${safeSource || "unknown"}: ${safeMessage.substring(0, 80)}`,
             );
 
             res.writeHead(200, { "Content-Type": "application/json" });

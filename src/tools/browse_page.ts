@@ -3,6 +3,15 @@
  *
  * Handles JavaScript-heavy pages, SPAs, and dynamic content that
  * simple fetch-based tools can't handle.
+ *
+ * IMP-03 — Puppeteer sandbox:
+ *   Chromium's built-in sandbox is a critical kernel-level exploit mitigation.
+ *   Running with --no-sandbox disables it entirely, meaning a malicious page
+ *   could potentially escape the browser process and compromise the host.
+ *   SUNDAY only passes --no-sandbox when PUPPETEER_NO_SANDBOX=true is set,
+ *   which should only be used inside Docker/Railway containers where the OS
+ *   provides equivalent namespace isolation (user namespaces / seccomp).
+ *   Never set this on a bare-metal or local dev machine.
  */
 
 import { Type, Tool } from "@google/genai";
@@ -67,8 +76,12 @@ export async function executeBrowsePage(args: {
     browser = await puppeteer.default.launch({
       headless: true,
       args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
+        // IMP-03: Only disable the Chromium sandbox in container environments
+        // where OS-level namespace isolation compensates for the missing sandbox.
+        // On a local machine this remains sandboxed (safe default).
+        ...(process.env.PUPPETEER_NO_SANDBOX === "true"
+          ? ["--no-sandbox", "--disable-setuid-sandbox"]
+          : []),
         "--disable-dev-shm-usage",
         "--disable-gpu",
       ],

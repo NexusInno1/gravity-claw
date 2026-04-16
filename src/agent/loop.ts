@@ -89,6 +89,10 @@ import {
   buildSemanticPrompt,
   triggerFactExtraction,
 } from "../memory/semantic.js";
+import {
+  buildUserProfilePrompt,
+  triggerUserProfileUpdate,
+} from "../memory/user-profile.js";
 
 // Skills system
 import { buildSkillsPrompt } from "../skills/loader.js";
@@ -298,6 +302,12 @@ async function buildSystemInstruction(
   const coreMemory = buildCoreMemoryPrompt();
   if (coreMemory) {
     parts.push(coreMemory);
+  }
+
+  // 5b. User Profile (always active, injected after core memory)
+  const userProfileBlock = buildUserProfilePrompt();
+  if (userProfileBlock) {
+    parts.push(userProfileBlock);
   }
 
   // 6. Tier 2 Rolling Summary
@@ -566,6 +576,9 @@ async function runAgentLoopInner(
       // Trigger background fact extraction (Tier 3 — async, never blocks)
       triggerFactExtraction(userMessage, finalResponse || "", chatId);
 
+      // Trigger background user profile update (async, never blocks)
+      triggerUserProfileUpdate(chatId, userMessage, finalResponse || "");
+
       return finalResponse || "No text response generated.";
     }
   }
@@ -714,6 +727,7 @@ async function runAgentLoopWithImageInner(
       }
 
       triggerFactExtraction(userMessage, finalResponse || "", chatId);
+      triggerUserProfileUpdate(chatId, userMessage, finalResponse || "");
       return finalResponse || "No text response generated.";
     }
   }

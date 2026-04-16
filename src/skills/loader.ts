@@ -325,11 +325,17 @@ export function buildSkillsPrompt(skills?: Skill[]): string {
  * @param localDir  Path to the local skills directory (e.g. `resolve(cwd, 'skills')`)
  */
 export async function initSkillsSystem(localDir: string): Promise<void> {
-  // 1. Load local skills as baseline
+  // 1. Load hand-crafted skills from the main dir
   const locals = loadSkills(localDir);
-  localSkills = new Map(locals.map((s) => [s.slug, s]));
 
-  // 2. Try loading from Supabase
+  // 2. Also load auto-generated skills from skills/auto/
+  const autoDir = resolve(localDir, "auto");
+  const autoLocals = loadSkills(autoDir);
+  const allLocals = [...locals, ...autoLocals];
+
+  localSkills = new Map(allLocals.map((s) => [s.slug, s]));
+
+  // 3. Try loading from Supabase
   const ready = await isSupabaseReady();
   if (ready) {
     await loadSupabaseSkills();

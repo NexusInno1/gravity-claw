@@ -40,6 +40,11 @@ import {
   getHeartbeatStatus,
   updateHeartbeatTime,
 } from "../heartbeat/scheduler.js";
+import {
+  getUserProfile,
+  clearUserProfile,
+} from "../memory/user-profile.js";
+import { listAutoSkills } from "../skills/auto-generator.js";
 
 // ─── Per-session Model Override ───────────────────────────────────
 
@@ -216,6 +221,15 @@ const PLAIN_TEXT_ALIASES: [RegExp, string][] = [
   [/^show\s+(my\s+)?memories$/i, "/memories"],
   [/^list\s+(my\s+)?memories$/i, "/memories"],
   [/^core\s+memory$/i, "/memories"],
+  [/^export\s+(my\s+)?memory$/i, "/export"],
+  [/^export\s+memories$/i, "/export"],
+  [/^memory\s+export$/i, "/export"],
+  [/^show\s+(my\s+)?profile$/i, "/profile"],
+  [/^my\s+profile$/i, "/profile"],
+  [/^user\s+profile$/i, "/profile"],
+  [/^show\s+skills?$/i, "/skills"],
+  [/^auto\s+skills?$/i, "/skills"],
+  [/^learned\s+skills?$/i, "/skills"],
   [/^show\s+(my\s+)?reminders?$/i, "/reminders"],
   [/^list\s+(my\s+)?reminders?$/i, "/reminders"],
   [/^pending\s+reminders?$/i, "/reminders"],
@@ -319,6 +333,15 @@ export async function handleSlashCommand(
 
     case "/clear_memories":
       return handleClearMemories(chatId);
+
+    case "/export":
+      return handleExport(chatId);
+
+    case "/profile":
+      return handleProfile(args);
+
+    case "/skills":
+      return handleSkills();
 
     default:
       // Unknown slash command — let the LLM handle it naturally
@@ -507,6 +530,9 @@ function handleHelp(): SlashCommandResult {
     "`/pin`             — Save something to permanent core memory",
     "`/forget`          — Remove a core memory entry (or `/forget all`)",
     "`/memories`        — View all core memory entries",
+    "`/export`          — Export a full readable dump of all your memory",
+    "`/profile`         — View or clear your auto-built user profile",
+    "`/skills`          — List auto-generated skills SUNDAY has learned",
     "`/reminders`       — View pending reminders",
     "`/help`            — Show this message",
     "",
@@ -689,5 +715,110 @@ async function handleClearMemories(chatId: string): Promise<SlashCommandResult> 
       "",
       "_I'll start fresh context from your next message._",
     ].join("\n"),
+  };
+}
+
+// ─── Export, Profile & Skills Commands ───────────────────────────
+
+/**
+ * /export — Produce a full, human-readable dump of all memory tiers.
+ * Inspired by Hermes' transparent MEMORY.md + USER.md approach.
+ */
+async function handleExport(chatId: string): Promise<SlashCommandResult> {
+  const { buildCoreMemoryPrompt, getCoreMemory } = await import("../memory/core.js");
+  const { searchMemories } = await import("../memory/semantic.js");
+
+  const sections: string[] = ["📦 **Memory Export**\n"];
+
+  // ── User Profile ───────────────────────────────────────────────
+  const profile = getUserProfile();
+  if (profile) {
+    sections.push("## 👤 User Profile\n" + profile);
+  } else {
+    sections.push("## 👤 User Profile\n_Not built yet — it auto-generates as you chat._");
+  }
+
+  // ── Core Memories (KV) ─────────────────────────────────────────
+  const coreBlock = buildCoreMemoryPrompt();
+  if (coreBlock) {
+    sections.push(coreBlock.replace("## Core Memory (Always Active)", "## 🧠 Core Memories"));
+  } else {
+    sections.push("## 🧠 Core Memories\n_Empty — use `/pin` to add entries._");
+  }
+
+  // ── Rolling Summary (buffer compaction) ───────────────────────
+  const rollingSummary = getCoreMemory(`rolling_summary_${chatId}`);
+  if (rollingSummary) {
+    sections.push("## 📜 Conversation Summary\n" + rollingSummary);
+  }
+
+  // ── Top Semantic Memories ──────────────────────────────────────
+  try {
+    const semanticFacts = await searchMemories("", 8);
+    if (semanticFacts.length > 0) {
+      sections.push("## 💾 Long-Term Memories\n" + semanticFacts.join("\n"));
+    }
+  } catch {
+    // Semantic search unavailable — skip silently
+  }
+
+  sections.push("\n_Use `/forget <key>` to remove core entries · `/profile clear` to reset profile_");
+
+  return { handled: true, response: sections.join("\n\n") };
+}
+
+/**
+ * /profile — View or clear the auto-built user profile.
+ */
+async function handleProfile(args: string[]): Promise<SlashCommandResult> {
+  // /profile clear
+  if (args[0]?.toLowerCase() === "clear") {
+    await clearUserProfile();
+    return {
+      handled: true,
+      response: "🗑 **User profile cleared.** It will rebuild automatically as you chat.",
+    };
+  }
+
+  // /profile (view)
+  const profile = getUserProfile();
+  if (!profile || profile.trim().length === 0) {
+    return {
+      handled: true,
+      response: [
+        "👤 **User Profile**\n",
+        "_No profile built yet._",
+        "",
+        "SUNDAY auto-builds your profile as you chat — it captures your preferences,",
+        "expertise, timezone, active projects, and communication style.",
+        "",
+        "It updates every 5 messages in the background and is injected into every",
+        "response so I always remember who you are.",
+        "",
+        "Use `/profile clear` to reset it.",
+      ].join("\n"),
+    };
+  }
+
+  return {
+    handled: true,
+    response: [
+      "👤 **Your User Profile** _(auto-built by SUNDAY)_\n",
+      profile,
+      "",
+      "_Updates automatically every 5 turns · `/profile clear` to reset_",
+    ].join("\n"),
+  };
+}
+
+/**
+ * /skills — List auto-generated skills SUNDAY has learned from delegated tasks.
+ */
+function handleSkills(): SlashCommandResult {
+  const skillsText = listAutoSkills();
+  return {
+    handled: true,
+    response: skillsText +
+      "\n\n_Skills are auto-generated after complex delegated tasks. They improve SUNDAY's future responses._",
   };
 }

@@ -113,6 +113,66 @@ All tools are registered in `src/tools/registry.ts` and available to the main ag
 | `set_reminder`     | `src/tools/set_reminder.ts`   | Schedule a reminder for the user            |
 | `get_current_time` | `src/tools/get_current_time.ts`| Return current IST timestamp               |
 | `serper_search`    | `src/tools/serper_search.ts`  | Lower-level Serper API wrapper              |
+| `mcp_filesystem_*` | MCP (mcp.json)                | Read skills/, soul.md, AGENTS.md files      |
+| `mcp_fetch_*`      | MCP (mcp.json)                | HTTP fetch via MCP protocol                 |
+
+---
+
+## 3b. Autonomous Learning Loop (Self-Improvement)
+
+SUNDAY now implements a **closed learning loop** inspired by Hermes Agent.
+After every successful sub-agent delegation, the system evaluates whether the
+completed task was novel and complex enough to save as a reusable **skill**.
+
+### How It Works
+
+```
+delegate() called → sub-agent runs → task completes
+        │
+        ▼
+  triggerSkillExtraction() [async, non-blocking]
+        │
+        ├── Pre-filter: ≥2 iterations, task ≥80 chars, result ≥200 chars
+        │
+        ├── LLM evaluates: novel? recurring? generalizable? not duplicate?
+        │
+        └── If YES → saves skills/auto/<slug>.md with frontmatter metadata
+                           ├── auto_generated: true
+                           ├── source_agent: which agent created it
+                           ├── effectiveness: 0 (incremented on reuse)
+                           └── category: research|code|analysis|workflow|integration
+```
+
+### Related Commands
+
+| Command           | Action                                          |
+|-------------------|-------------------------------------------------|
+| `/skills`         | List all auto-generated skills with metadata    |
+| `/export`         | Full memory dump including profile & skills     |
+| `/profile`        | View or clear the auto-built user profile       |
+| `/profile clear`  | Reset user profile (rebuilds from next message) |
+
+---
+
+## 3c. User Profile System
+
+SUNDAY maintains a curated **user profile** (inspired by Hermes `USER.md`) that:
+- Is stored in `core_memories` under the key `user_profile`
+- Is injected into **every** system prompt (after core memory)
+- Is updated in the background **every 5 non-trivial turns** by an LLM pass
+- Captures: communication style, expertise, active projects, preferences, timezone
+- Is kept ≤1200 chars (high signal, low noise)
+
+```
+User sends message → agent responds
+        │
+        ▼
+  triggerUserProfileUpdate() [every 5th turn, async]
+        │
+        └── LLM merges new observations into existing profile
+                └── Saved to core_memories['user_profile']
+                           └── Injected into next system prompt
+```
 
 ---
 
@@ -384,7 +444,7 @@ This is a living specification tied to the SUNDAY codebase.
 - When sub-agent profiles change in `src/agent/profiles.ts`, **update Section 3** here immediately.
 - When new tools are added to `src/tools/`, **update the Tool Registry table** in Section 3.
 
-**Version:** 1.3 — Added `saas_idea` and `startup_idea` sub-agents  
+**Version:** 1.4 — Added autonomous skill creation, user profile system, MCP activation, and `/export`, `/profile`, `/skills` commands  
 **Adoption Mandate:** All agents operating within SUNDAY must internalize these instructions.
 
 ---

@@ -27,6 +27,7 @@ import {
 import type { SubAgentProfile } from "../agent/profiles.js";
 import { ENV } from "../config.js";
 import { getEffectiveModel } from "../commands/slash-commands.js";
+import { triggerSkillExtraction } from "../skills/auto-generator.js";
 
 // ─── Tool Definition ─────────────────────────────────────────────
 
@@ -122,7 +123,18 @@ export async function executeDelegate(
         });
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        const elapsedNum = parseFloat(elapsed);
         console.log(`[Delegate] ${profile.icon} ${profile.label} completed in ${elapsed}s`);
+
+        // Trigger background skill extraction (async — never blocks response)
+        triggerSkillExtraction({
+            agentName: profile.name,
+            agentLabel: profile.label,
+            taskDescription: task,
+            result,
+            iterationsUsed: Math.round(elapsedNum / 3) + 1, // estimate from timing
+            elapsedSeconds: elapsedNum,
+        });
 
         // Format the result with metadata
         return formatSubAgentResult(profile, result, elapsed);

@@ -191,7 +191,10 @@ registerTool({
   name: "set_reminder",
   definition: setReminderDefinition,
   executor: async (args, chatId) =>
-    executeSetReminder(args as { message: string; minutes: number }, chatId),
+    executeSetReminder(
+      args as { message: string; when?: string; minutes?: number },
+      chatId,
+    ),
 });
 registerTool({
   name: "browse_page",

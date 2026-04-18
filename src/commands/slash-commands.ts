@@ -45,6 +45,7 @@ import {
   clearUserProfile,
 } from "../memory/user-profile.js";
 import { listAutoSkills } from "../skills/auto-generator.js";
+import { applySkillFeedback, manuallyRefineSkill } from "../skills/feedback.js";
 
 // ─── Per-session Model Override ───────────────────────────────────
 
@@ -343,6 +344,12 @@ export async function handleSlashCommand(
     case "/skills":
       return handleSkills();
 
+    case "/skill_feedback":
+      return handleSkillFeedback(args);
+
+    case "/skill_refine":
+      return await handleSkillRefine(args);
+
     default:
       // Unknown slash command — let the LLM handle it naturally
       return { handled: false };
@@ -478,15 +485,22 @@ function handleHeartbeatSet(args: string[]): SlashCommandResult {
   if (args.length === 0) {
     return {
       handled: true,
-      response: "Usage: `/heartbeat_set HH:MM`\nExample: `/heartbeat_set 09:30`",
+      response: [
+        "**Usage:** `/heartbeat_set HH:MM`",
+        "Sets the morning check-in time (IST, 24-hour format).",
+        "",
+        "Example: `/heartbeat_set 09:00`",
+        "Evening briefing time is set via `HEARTBEAT_EVENING_TIME` in your environment.",
+      ].join("\n"),
     };
   }
 
-  const timeMatch = args[0].match(/^(\d{1,2}):(\d{2})$/);
+  const timeArg = args[0];
+  const timeMatch = timeArg.match(/^(\d{1,2}):(\d{2})$/);
   if (!timeMatch) {
     return {
       handled: true,
-      response: "Invalid format. Use HH:MM (24-hour IST).\nExample: `/heartbeat_set 09:30`",
+      response: "Invalid format. Use HH:MM (24-hour IST). Example: `/heartbeat_set 09:00`",
     };
   }
 
@@ -496,7 +510,7 @@ function handleHeartbeatSet(args: string[]): SlashCommandResult {
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
     return {
       handled: true,
-      response: "Invalid time. Hour: 0-23, Minute: 0-59.",
+      response: "Invalid time. Hour: 0\u201323, Minute: 0\u201359.",
     };
   }
 
@@ -505,7 +519,7 @@ function handleHeartbeatSet(args: string[]): SlashCommandResult {
     const timeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
     return {
       handled: true,
-      response: `✅ Morning check-in updated to **${timeStr} IST**.`,
+      response: `\u2705 Morning check-in updated to **${timeStr} IST**.`,
     };
   } else {
     return {
@@ -517,30 +531,38 @@ function handleHeartbeatSet(args: string[]): SlashCommandResult {
 
 function handleHelp(): SlashCommandResult {
   const response = [
-    "⚡ **Slash Commands**\n",
-    "`/status`          — Session stats: uptime, token usage, memory & reminder count",
-    "`/usage`           — Focused token consumption breakdown",
-    "`/new`             — Start fresh: clear history, reset stats & model override",
-    "`/compact`         — Compress current buffer into a rolling summary",
-    "`/clear_memories`  — Clear session memory (buffer + summary) but keep core",
-    "`/model`           — Show active model or switch it for this session",
-    "`/heartbeat`       — Show heartbeat scheduler status",
-    "`/heartbeat_set`   — Change morning check-in time (e.g. `/heartbeat_set 09:30`)",
-    "`/agents`          — List available sub-agents for delegation",
-    "`/pin`             — Save something to permanent core memory",
-    "`/forget`          — Remove a core memory entry (or `/forget all`)",
-    "`/memories`        — View all core memory entries",
-    "`/export`          — Export a full readable dump of all your memory",
-    "`/profile`         — View or clear your auto-built user profile",
-    "`/skills`          — List auto-generated skills SUNDAY has learned",
-    "`/reminders`       — View pending reminders",
-    "`/help`            — Show this message",
+    "⚡ **SUNDAY Commands**\n",
+    "**Memory**",
+    "`/pin <text>`       — Save something to permanent core memory",
+    "`/forget <key>`    — Remove a core memory entry (`/forget all` clears all)",
+    "`/memories`        — View all pinned core memory entries",
+    "`/export`          — Full dump of all memory tiers (profile + core + long-term)",
+    "`/profile`         — View your auto-built user profile",
+    "`/profile clear`   — Reset the user profile (rebuilds automatically)",
     "",
-    "_Commands are processed locally and never sent to the LLM._",
+    "**Session**",
+    "`/status`          — Uptime, token usage, memory stats",
+    "`/usage`           — Focused token breakdown",
+    "`/new`             — Start fresh (clear history, reset overrides)",
+    "`/compact`         — Compress buffer into a rolling summary",
+    "`/clear_memories`  — Clear session buffer + summary (core stays)",
+    "`/model [name]`    — Show or switch model for this session",
+    "",
+    "**Heartbeat**",
+    "`/heartbeat`       — Show scheduler status (morning + evening jobs)",
+    "`/heartbeat_set`   — Change morning check-in time: `/heartbeat_set 09:00`",
+    "`/reminders`       — View pending reminders",
+    "",
+    "**Agents & Skills**",
+    "`/agents`          — List available sub-agents",
+    "`/skills`          — List auto-generated skills SUNDAY has learned",
+    "",
+    "_Commands are handled locally and never sent to the LLM._",
   ].join("\n");
 
   return { handled: true, response };
 }
+
 
 async function handlePin(chatId: string, args: string[]): Promise<SlashCommandResult> {
   if (args.length === 0) {
@@ -723,27 +745,30 @@ async function handleClearMemories(chatId: string): Promise<SlashCommandResult> 
 /**
  * /export — Produce a full, human-readable dump of all memory tiers.
  * Inspired by Hermes' transparent MEMORY.md + USER.md approach.
+ *
+ * Semantic facts are fetched by importance (no vector search needed
+ * for a full dump — avoids the empty-query embedding problem).
  */
 async function handleExport(chatId: string): Promise<SlashCommandResult> {
   const { buildCoreMemoryPrompt, getCoreMemory } = await import("../memory/core.js");
-  const { searchMemories } = await import("../memory/semantic.js");
+  const { getSupabase } = await import("../lib/supabase.js");
 
-  const sections: string[] = ["📦 **Memory Export**\n"];
+  const sections: string[] = ["📦 **Memory Export** — _SUNDAY Brain Snapshot_\n"];
 
   // ── User Profile ───────────────────────────────────────────────
   const profile = getUserProfile();
   if (profile) {
     sections.push("## 👤 User Profile\n" + profile);
   } else {
-    sections.push("## 👤 User Profile\n_Not built yet — it auto-generates as you chat._");
+    sections.push("## 👤 User Profile\n_Not built yet — it auto-generates after ~5 messages._");
   }
 
   // ── Core Memories (KV) ─────────────────────────────────────────
   const coreBlock = buildCoreMemoryPrompt();
   if (coreBlock) {
-    sections.push(coreBlock.replace("## Core Memory (Always Active)", "## 🧠 Core Memories"));
+    sections.push(coreBlock.replace("## Core Memory (Always Active)", "## 🧠 Core Memories (Always Active)"));
   } else {
-    sections.push("## 🧠 Core Memories\n_Empty — use `/pin` to add entries._");
+    sections.push("## 🧠 Core Memories\n_Empty — use `/pin` to add permanent entries._");
   }
 
   // ── Rolling Summary (buffer compaction) ───────────────────────
@@ -752,19 +777,57 @@ async function handleExport(chatId: string): Promise<SlashCommandResult> {
     sections.push("## 📜 Conversation Summary\n" + rollingSummary);
   }
 
-  // ── Top Semantic Memories ──────────────────────────────────────
+  // ── Top Semantic Memories (direct DB query, no embedding needed) ──
   try {
-    const semanticFacts = await searchMemories("", 8);
-    if (semanticFacts.length > 0) {
-      sections.push("## 💾 Long-Term Memories\n" + semanticFacts.join("\n"));
+    const sb = getSupabase();
+    if (sb) {
+      const { data, error } = await sb
+        .from("memories")
+        .select("content, type, importance, category, created_at")
+        .order("importance", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (!error && data && data.length > 0) {
+        const facts = data.map((row: {
+          content: string;
+          type: string;
+          importance: number;
+          category?: string;
+          created_at?: string;
+        }) => {
+          const cat = row.category ? `[${row.category}]` : "";
+          const ago = row.created_at ? formatTimeAgo(row.created_at) : "";
+          return `• ${cat}[⭐${row.importance}]${ago ? ` (${ago})` : ""} ${row.content}`;
+        });
+        sections.push("## 💾 Long-Term Memories (Top 10 by Importance)\n" + facts.join("\n"));
+      } else {
+        sections.push("## 💾 Long-Term Memories\n_None stored yet — facts are extracted from your conversations._");
+      }
     }
   } catch {
-    // Semantic search unavailable — skip silently
+    // Supabase unavailable — skip silently
+    sections.push("## 💾 Long-Term Memories\n_Unavailable (Supabase offline)._");
   }
 
-  sections.push("\n_Use `/forget <key>` to remove core entries · `/profile clear` to reset profile_");
+  sections.push("_Use `/forget <key>` to remove core entries · `/profile clear` to reset profile · `/memories` for quick core view_");
 
   return { handled: true, response: sections.join("\n\n") };
+}
+
+/**
+ * Format a timestamp into a human-readable "N ago" string (used by /export).
+ */
+function formatTimeAgo(isoDate: string): string {
+  const now = Date.now();
+  const then = new Date(isoDate).getTime();
+  const diffMs = now - then;
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return days < 7 ? `${days}d ago` : `${Math.floor(days / 7)}w ago`;
 }
 
 /**
@@ -819,6 +882,62 @@ function handleSkills(): SlashCommandResult {
   return {
     handled: true,
     response: skillsText +
-      "\n\n_Skills are auto-generated after complex delegated tasks. They improve SUNDAY's future responses._",
+      "\n\n_💡 Rate skills with `/skill_feedback good|bad <slug>` · Refine with `/skill_refine <slug>`_",
   };
+}
+
+/**
+ * /skill_feedback good|bad <slug> [optional reason]
+ * Apply user feedback to a skill's effectiveness score.
+ */
+function handleSkillFeedback(args: string[]): SlashCommandResult {
+  if (args.length < 2) {
+    return {
+      handled: true,
+      response: [
+        "📊 **Skill Feedback**\n",
+        "Rate a skill to help SUNDAY improve its learning:\n",
+        "**Usage:**",
+        "`/skill_feedback good <slug>`  — Mark a skill as helpful (+2 effectiveness)",
+        "`/skill_feedback bad <slug>`   — Mark a skill as unhelpful (−2 effectiveness)\n",
+        "Use `/skills` to see skill slugs.",
+      ].join("\n"),
+    };
+  }
+
+  const signal = args[0].toLowerCase();
+  if (signal !== "good" && signal !== "bad") {
+    return {
+      handled: true,
+      response: "❌ Invalid signal. Use `good` or `bad`.\nExample: `/skill_feedback good research-assistant`",
+    };
+  }
+
+  const slug = args[1].toLowerCase().replace(/\.md$/, "");
+  const reason = args.slice(2).join(" ") || undefined;
+
+  const result = applySkillFeedback({ slug, signal, reason });
+  return { handled: true, response: result };
+}
+
+/**
+ * /skill_refine <slug>
+ * Trigger LLM-based refinement of a specific auto-generated skill.
+ */
+async function handleSkillRefine(args: string[]): Promise<SlashCommandResult> {
+  if (args.length === 0) {
+    return {
+      handled: true,
+      response: [
+        "🔬 **Skill Refinement**\n",
+        "Trigger LLM-based refinement to improve a skill's instructions.\n",
+        "**Usage:** `/skill_refine <slug>`\n",
+        "Use `/skills` to see skill slugs.",
+      ].join("\n"),
+    };
+  }
+
+  const slug = args[0].toLowerCase().replace(/\.md$/, "");
+  const result = await manuallyRefineSkill(slug);
+  return { handled: true, response: result };
 }

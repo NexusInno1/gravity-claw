@@ -13,7 +13,9 @@ import { mcpManager } from "./mcp/mcp-manager.js";
 import { handleSlashCommand, getEffectiveModel } from "./commands/slash-commands.js";
 import { getProviderName } from "./lib/router.js";
 import { startWebhookServer, stopWebhookServer } from "./channels/webhook.js";
-import { restoreReminders } from "./tools/set_reminder.js";
+import { restoreReminders, initReminderCallback } from "./tools/set_reminder.js";
+import { runDeprecationSweep } from "./skills/feedback.js";
+import { getEmbeddingProvider, getEmbeddingDimensions } from "./lib/embeddings.js";
 
 console.log("============== SUNDAY — Superior Universal Neural Digital Assistant Yield ==============");
 console.log("Initializing secure local environment...");
@@ -93,6 +95,9 @@ async function start() {
     await initConfigSync();
     // Initialize skills system with Supabase hot-reload
     await initSkillsSystem("skills");
+
+    // Run deprecation sweep on startup (4.6 — disables zero-use old skills)
+    runDeprecationSweep();
   } else {
     console.warn(
       "[Memory] Supabase unavailable — running without persistent memory.",
@@ -171,6 +176,9 @@ async function start() {
       );
     }
   }
+
+  // Log embedding provider info (4.5)
+  console.log(`[Embeddings] Provider: ${getEmbeddingProvider()} · Dimensions: ${getEmbeddingDimensions()}`);
 
   // Restore pending reminders from Supabase (must happen after channel init)
   await restoreReminders();

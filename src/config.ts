@@ -72,6 +72,13 @@ if (!serperApiKey) {
   );
 }
 
+// Apify (optional — used for job search scraping)
+const apifyApiToken = process.env.APIFY_API_TOKEN || "";
+if (!apifyApiToken) {
+  console.warn(
+    "[Config] APIFY_API_TOKEN missing — apify_job_search tool will be unavailable.",
+  );
+}
 
 // OpenRouter (optional — used as fallback when Gemini keys are exhausted)
 const openrouterApiKey = process.env.OPENROUTER_API_KEY || "";
@@ -93,14 +100,16 @@ export const ENV = {
 
   GEMINI_API_KEYS: geminiKeys,
   GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-  DEFAULT_TEMPERATURE: parseFloat(process.env.DEFAULT_TEMPERATURE || "0.7"),
   ALLOWED_USER_IDS: allowedUsers,
   HEARTBEAT_CHAT_ID: process.env.HEARTBEAT_CHAT_ID || "",
   SUPABASE_URL: supabaseUrl,
   SUPABASE_SERVICE_ROLE_KEY: supabaseKey,
   TAVILY_API_KEY: tavilyApiKey,
   SERPER_API_KEY: serperApiKey,
+  APIFY_API_TOKEN: apifyApiToken,
   OPENROUTER_API_KEY: openrouterApiKey,
   OPENROUTER_MODEL: openrouterModel,
+  WEBHOOK_PORT: parseInt(process.env.WEBHOOK_PORT || "3100", 10),
+  WEBHOOK_SECRET: process.env.WEBHOOK_SECRET || "",
   SHOW_MODEL_FOOTER: (process.env.SHOW_MODEL_FOOTER ?? "true") !== "false",
 };

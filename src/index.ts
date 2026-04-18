@@ -3,13 +3,19 @@ import { TelegramChannel } from "./channels/telegram.js";
 import { ENV } from "./config.js";
 import { loadCoreMemories } from "./memory/core.js";
 import { isSupabaseReady } from "./lib/supabase.js";
+import { initConfigSync } from "./lib/config-sync.js";
+import { initSkillsSystem } from "./skills/loader.js";
 import { startHeartbeat, stopHeartbeat } from "./heartbeat/scheduler.js";
 import { heartbeatJobs } from "./heartbeat/jobs.js";
 import type { IncomingMessage, Channel } from "./channels/types.js";
 import { runAgentLoop, runAgentLoopWithImage } from "./agent/loop.js";
+import { mcpManager } from "./mcp/mcp-manager.js";
 import { handleSlashCommand, getEffectiveModel } from "./commands/slash-commands.js";
 import { getProviderName } from "./lib/router.js";
+import { startWebhookServer, stopWebhookServer } from "./channels/webhook.js";
 import { restoreReminders, initReminderCallback } from "./tools/set_reminder.js";
+import { runDeprecationSweep } from "./skills/feedback.js";
+import { getEmbeddingProvider, getEmbeddingDimensions } from "./lib/embeddings.js";
 
 console.log("============== SUNDAY — Superior Universal Neural Digital Assistant Yield ==============");
 console.log("Initializing secure local environment...");
@@ -64,9 +70,13 @@ const FRIENDLY_NAMES: Record<string, string> = {
 
 /**
  * Convert a raw model ID into a human-friendly display name.
+ * Falls back to a cleaned-up version of the raw ID if not in the map.
  */
 function prettifyModelName(model: string): string {
+  // Check exact match first
   if (FRIENDLY_NAMES[model]) return FRIENDLY_NAMES[model];
+
+  // Fallback: strip provider prefix and clean up
   const name = model.includes("/") ? model.split("/").pop()! : model;
   return name
     .replace(/:free$/, " (free)")
@@ -74,18 +84,28 @@ function prettifyModelName(model: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// Initialize memory and start the bot
+// Initialize memory system before starting the bot
 async function start() {
   // Check Supabase connection
   const supabaseOk = await isSupabaseReady();
   if (supabaseOk) {
-    console.log("[Memory] Supabase connected — core memories active.");
+    console.log("[Memory] Supabase connected — all 3 memory tiers active.");
     await loadCoreMemories();
+    // Load live config from bot_config table + sync agent profiles
+    await initConfigSync();
+    // Initialize skills system with Supabase hot-reload
+    await initSkillsSystem("skills");
+
+    // Run deprecation sweep on startup (4.6 — disables zero-use old skills)
+    runDeprecationSweep();
   } else {
     console.warn(
       "[Memory] Supabase unavailable — running without persistent memory.",
     );
   }
+
+  // Initialize MCP servers (loads mcp.json)
+  await mcpManager.init();
 
   // Shared message handler for all channels
   const messageHandler = async (msg: IncomingMessage): Promise<string> => {
@@ -94,6 +114,7 @@ async function start() {
       const slashResult = await handleSlashCommand(msg.text, msg.chatId);
       if (slashResult.handled) {
         return slashResult.response ?? "";
+        // Note: no model footer on slash commands — they're local, no LLM used
       }
     }
 
@@ -111,6 +132,7 @@ async function start() {
     }
 
     // ── Optional model footer ─────────────────────────────────────
+    // Set SHOW_MODEL_FOOTER=false in .env to disable
     if (ENV.SHOW_MODEL_FOOTER && response && !response.startsWith("Error:")) {
       const model = getEffectiveModel(msg.chatId);
       const provider = getProviderName(model);
@@ -139,7 +161,24 @@ async function start() {
         "[Heartbeat] No HEARTBEAT_CHAT_ID set — scheduler disabled.",
       );
     }
+
+    // Start webhook server if configured
+    if (ENV.WEBHOOK_SECRET && ENV.HEARTBEAT_CHAT_ID) {
+      startWebhookServer({
+        port: ENV.WEBHOOK_PORT,
+        token: ENV.WEBHOOK_SECRET,
+        chatId: ENV.HEARTBEAT_CHAT_ID,
+        bot: telegram.getBot(),
+      });
+    } else if (ENV.WEBHOOK_SECRET && !ENV.HEARTBEAT_CHAT_ID) {
+      console.warn(
+        "[Webhook] WEBHOOK_SECRET set but no HEARTBEAT_CHAT_ID — webhook disabled.",
+      );
+    }
   }
+
+  // Log embedding provider info (4.5)
+  console.log(`[Embeddings] Provider: ${getEmbeddingProvider()} · Dimensions: ${getEmbeddingDimensions()}`);
 
   // Restore pending reminders from Supabase (must happen after channel init)
   await restoreReminders();
@@ -157,6 +196,8 @@ async function start() {
   const shutdown = () => {
     console.log("🔴 SUNDAY shutdown signal received — cleaning up...");
     stopHeartbeat();
+    stopWebhookServer();
+    mcpManager.shutdown().catch(() => { });
     for (const channel of activeChannels) {
       channel.stop();
     }

@@ -1,16 +1,15 @@
 /**
- * set_reminder tool — Natural Language Schedule + Recurring Cron Support (Feature 4.4)
+ * set_reminder tool — Simple NL Reminder Scheduling
  *
  * Reminders are persisted to Supabase so they survive bot restarts.
  * On startup, call `restoreReminders()` to reload and reschedule
  * any pending reminders from the database.
  *
- * Supports both one-time and recurring reminders via natural language:
+ * Supports one-time reminders via natural language:
  *   - "in 30 minutes"
+ *   - "in 2 hours"
  *   - "tomorrow at 9am"
- *   - "every Monday at 10:00"
- *   - "every day at 8:30am"
- *   - "at 6pm"
+ *   - "at 6pm" / "at 18:30"
  *   Falls back to legacy `minutes` param if `when` is omitted.
  *
  * Table: reminders
@@ -27,7 +26,6 @@
 
 import { Type, Tool } from "@google/genai";
 import { getSupabase } from "../lib/supabase.js";
-import { parseNaturalSchedule, scheduleToMinutes } from "./nl-scheduler.js";
 
 export const setReminderDefinition: Tool = {
   functionDeclarations: [
@@ -292,6 +290,72 @@ export async function restoreReminders(): Promise<void> {
   }
 }
 
+// ─── Simple When Parser ───────────────────────────────────────────
+
+/**
+ * Parse simple natural language time expressions into a fire date.
+ * Handles: "in X minutes", "in X hours", "tomorrow at H:MM", "at H:MM am/pm"
+ * Returns null if unparseable.
+ */
+function parseSimpleWhen(when: string): { fireAt: Date; description: string } | null {
+  const s = when.trim().toLowerCase();
+  const now = new Date();
+
+  // "in X minutes" / "in X mins"
+  const inMins = s.match(/^in\s+(\d+)\s+min/);
+  if (inMins) {
+    const m = parseInt(inMins[1], 10);
+    return { fireAt: new Date(now.getTime() + m * 60_000), description: `in ${m} minute${m === 1 ? "" : "s"}` };
+  }
+
+  // "in X hours" / "in X hour"
+  const inHrs = s.match(/^in\s+(\d+)\s+h(our)?/);
+  if (inHrs) {
+    const h = parseInt(inHrs[1], 10);
+    return { fireAt: new Date(now.getTime() + h * 3600_000), description: `in ${h} hour${h === 1 ? "" : "s"}` };
+  }
+
+  // Helper: parse "H:MM am/pm" or "H:MM" or "Ham" or "H am" → {hour24, minute}
+  function parseTime(str: string): { hour: number; minute: number } | null {
+    // e.g. "9:30am", "9:30 am", "9am", "9 am", "21:00", "9:30"
+    const t = str.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+    if (!t) return null;
+    let hour = parseInt(t[1], 10);
+    const minute = t[2] ? parseInt(t[2], 10) : 0;
+    const period = t[3]?.toLowerCase();
+    if (period === "pm" && hour < 12) hour += 12;
+    if (period === "am" && hour === 12) hour = 0;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    return { hour, minute };
+  }
+
+  // "tomorrow at ..."
+  const tomorrowAt = s.match(/^tomorrow\s+at\s+(.+)$/);
+  if (tomorrowAt) {
+    const t = parseTime(tomorrowAt[1]);
+    if (t) {
+      const d = new Date(now);
+      d.setDate(d.getDate() + 1);
+      d.setHours(t.hour, t.minute, 0, 0);
+      return { fireAt: d, description: `tomorrow at ${tomorrowAt[1]}` };
+    }
+  }
+
+  // "at ..."
+  const atMatch = s.match(/^at\s+(.+)$/);
+  if (atMatch) {
+    const t = parseTime(atMatch[1]);
+    if (t) {
+      const d = new Date(now);
+      d.setHours(t.hour, t.minute, 0, 0);
+      if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1); // next occurrence
+      return { fireAt: d, description: `at ${atMatch[1]}` };
+    }
+  }
+
+  return null;
+}
+
 // ─── Execute ─────────────────────────────────────────────────────
 
 /**
@@ -318,25 +382,18 @@ export async function executeSetReminder(
   let scheduleDesc = "";
 
   if (when) {
-    // Natural language scheduling
-    const schedule = parseNaturalSchedule(when);
-
-    if (!schedule) {
-      // LLM gave a `when` we couldn't parse — try falling back to minutes
+    // Simple natural language parsing
+    const parsed = parseSimpleWhen(when);
+    if (!parsed) {
       if (minutes && minutes > 0) {
         fireAt = new Date(Date.now() + Math.round(minutes * 60_000));
         scheduleDesc = `in ${minutes} minute${minutes === 1 ? "" : "s"}`;
       } else {
-        return `Error: Could not understand schedule "${when}". Try "in 30 minutes", "tomorrow at 9am", or "every day at 8am".`;
+        return `Error: Could not understand schedule "${when}". Try "in 30 minutes", "in 2 hours", "tomorrow at 9am", or "at 6pm".`;
       }
-    } else if (schedule.isRecurring) {
-      isRecurring = true;
-      cronExpression = schedule.cronExpression!;
-      scheduleDesc = schedule.description;
-      fireAt = nextCronFire(cronExpression);
     } else {
-      fireAt = schedule.fireAt!;
-      scheduleDesc = schedule.description;
+      fireAt = parsed.fireAt;
+      scheduleDesc = parsed.description;
     }
   } else if (minutes && minutes > 0) {
     // Legacy minutes path

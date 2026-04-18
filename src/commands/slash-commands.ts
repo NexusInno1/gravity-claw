@@ -1,51 +1,38 @@
 /**
  * Slash Command System — Single Source of Truth
  *
- * ALL slash commands are handled here. Channel adapters (Telegram, Discord)
+ * ALL slash commands are handled here. Channel adapters (Telegram)
  * call handleSlashCommand() and only deal with sending the result.
- * This ensures every command works on every channel without duplication.
  *
  * Supported commands:
  *   /start    — alias for /new
- *   /new      — clear conversation history and reset session stats
+ *   /new      — clear conversation history
  *   /reset    — alias for /new
- *   /status   — session stats: uptime, message count, token usage
- *   /usage    — focused token breakdown
+ *   /status   — session uptime, message count, memory stats
  *   /compact  — manually compact buffer into a rolling summary
  *   /model    — show active model, or switch it for this session
  *   /heartbeat     — show heartbeat scheduler status
  *   /heartbeat_set — change morning check-in time
- *   /agents   — list available sub-agents
  *   /pin      — save something to permanent core memory
+ *   /forget   — remove a core memory entry
+ *   /memories — view all pinned core memory entries
+ *   /reminders — view pending reminders
+ *   /clear_memories — clear session buffer + summary
  *   /help     — list all available commands
  */
 
 import { ENV } from "../config.js";
 import { getProviderName } from "../lib/router.js";
-import { getRuntimeConfig } from "../lib/config-sync.js";
-import { PROFILES } from "../agent/profiles.js";
-import {
-  getSessionStats,
-  resetSessionStats,
-  formatSessionStatus,
-  formatUsageReport,
-} from "./session-stats.js";
 import {
   clearChatHistory,
   compactChatHistory,
   getMessageCount,
 } from "../memory/buffer.js";
-import { setCoreMemory } from "../memory/core.js";
+import { setCoreMemory, buildCoreMemoryPrompt, getCoreMemory } from "../memory/core.js";
 import {
   getHeartbeatStatus,
   updateHeartbeatTime,
 } from "../heartbeat/scheduler.js";
-import {
-  getUserProfile,
-  clearUserProfile,
-} from "../memory/user-profile.js";
-import { listAutoSkills } from "../skills/auto-generator.js";
-import { applySkillFeedback, manuallyRefineSkill } from "../skills/feedback.js";
 
 // ─── Per-session Model Override ───────────────────────────────────
 
@@ -60,7 +47,7 @@ const sessionModelOverrides = new Map<string, string>();
  * Get the effective model for a given chat (override takes precedence).
  */
 export function getEffectiveModel(chatId: string): string {
-  return sessionModelOverrides.get(chatId) ?? getRuntimeConfig().primaryModel;
+  return sessionModelOverrides.get(chatId) ?? ENV.GEMINI_MODEL;
 }
 
 /**
@@ -97,30 +84,21 @@ const KNOWN_MODELS: Record<string, string> = {
   "flash-8b": "gemini-1.5-flash-8b",
 
   // ── OpenRouter Free Tier ───────────────────────────────────────────────
-  // Llama 4
   "llama": "meta-llama/llama-4-maverick:free",
   "llama-maverick": "meta-llama/llama-4-maverick:free",
   "llama-scout": "meta-llama/llama-4-scout:free",
-  // DeepSeek
   "deepseek": "deepseek/deepseek-chat-v3-0324:free",
   "deepseek-v3": "deepseek/deepseek-chat-v3-0324:free",
   "deepseek-r1": "deepseek/deepseek-r1-0528:free",
   "deepseek-r1-zero": "deepseek/deepseek-r1-zero:free",
-  // Qwen
   "qwen": "qwen/qwen3-235b-a22b:free",
   "qwen3": "qwen/qwen3-235b-a22b:free",
   "qwen-coder": "qwen/qwen3-coder-480b-a35b:free",
-  // Mistral free
   "mistral": "mistralai/mistral-small-3.1-24b-instruct:free",
   "mistral-small": "mistralai/mistral-small-3.1-24b-instruct:free",
   "mistral-7b": "mistralai/mistral-7b-instruct:free",
-  // Microsoft / NVIDIA
   "phi": "microsoft/phi-4-reasoning-plus:free",
   "nemotron": "nvidia/nemotron-3-super:free",
-  // Misc free
-  "gpt-oss": "openai/gpt-oss-20b:free",
-  "step-flash": "stepfun/step-3.5-flash:free",
-  "trinity": "arcee-ai/trinity-mini:free",
 
   // ── OpenRouter Paid — Claude ───────────────────────────────────────────
   "claude": "anthropic/claude-3.7-sonnet",
@@ -152,25 +130,13 @@ const KNOWN_MODELS: Record<string, string> = {
   // ── OpenRouter Paid — DeepSeek ────────────────────────────────────────
   "deepseek-paid": "deepseek/deepseek-chat-v3-0324",
   "deepseek-r1-paid": "deepseek/deepseek-r1",
-
-  // ── Google models via OpenRouter ──────────────────────────────────────
-  "gemini-or": "google/gemini-3-flash-preview",
-  "gemini-pro-or": "google/gemini-2.5-pro",
 };
 
 function resolveModel(raw: string): string | null {
   const lower = raw.toLowerCase().trim();
-
-  // Short aliases
   if (KNOWN_MODELS[lower]) return KNOWN_MODELS[lower];
-
-  // Full Gemini model name (e.g. "gemini-2.0-flash")
   if (lower.startsWith("gemini-")) return lower;
-
-  // Full OpenRouter model name (e.g. "anthropic/claude-3-haiku")
-  // OpenRouter models always contain a "/" (provider/model format)
   if (lower.includes("/")) return lower;
-
   return null;
 }
 
@@ -184,53 +150,18 @@ export interface SlashCommandResult {
 }
 
 /**
- * Attempt to parse and execute a slash command.
- *
- * @param text   Raw input from the user
- * @param chatId The chat ID for scoping session data
- * @returns SlashCommandResult — if handled is false, route to the LLM as normal
- */
-/**
  * Plain-text keyword aliases → equivalent slash command.
- * Supports:
- *   - Exact single-word matches: "status" → /status
- *   - Multi-word phrases:  "show status" → /status
- *   - Prefix matching:     "model info" → /model
- *   - Common typos/variations: "heartbeat status" → /heartbeat
- *
- * Evaluated in order — first match wins. Longer phrases listed first
- * to avoid a shorter prefix stealing the match.
  */
 const PLAIN_TEXT_ALIASES: [RegExp, string][] = [
-  // Multi-word first (longer patterns before shorter)
   [/^show\s+(my\s+)?status$/i, "/status"],
   [/^check\s+(my\s+)?status$/i, "/status"],
-  [/^show\s+(my\s+)?usage$/i, "/usage"],
-  [/^check\s+(my\s+)?usage$/i, "/usage"],
-  [/^token\s*usage$/i, "/usage"],
   [/^show\s+(my\s+)?model$/i, "/model"],
   [/^current\s+model$/i, "/model"],
   [/^which\s+model$/i, "/model"],
-  [/^switch\s+model$/i, "/model"],
-  [/^change\s+model$/i, "/model"],
-  [/^model\s+info$/i, "/model"],
   [/^heartbeat\s*(status|info)?$/i, "/heartbeat"],
-  [/^scheduler?\s*(status|info)?$/i, "/heartbeat"],
-  [/^show\s+agents?$/i, "/agents"],
-  [/^list\s+agents?$/i, "/agents"],
-  [/^sub\s*agents?$/i, "/agents"],
   [/^show\s+(my\s+)?memories$/i, "/memories"],
   [/^list\s+(my\s+)?memories$/i, "/memories"],
   [/^core\s+memory$/i, "/memories"],
-  [/^export\s+(my\s+)?memory$/i, "/export"],
-  [/^export\s+memories$/i, "/export"],
-  [/^memory\s+export$/i, "/export"],
-  [/^show\s+(my\s+)?profile$/i, "/profile"],
-  [/^my\s+profile$/i, "/profile"],
-  [/^user\s+profile$/i, "/profile"],
-  [/^show\s+skills?$/i, "/skills"],
-  [/^auto\s+skills?$/i, "/skills"],
-  [/^learned\s+skills?$/i, "/skills"],
   [/^show\s+(my\s+)?reminders?$/i, "/reminders"],
   [/^list\s+(my\s+)?reminders?$/i, "/reminders"],
   [/^pending\s+reminders?$/i, "/reminders"],
@@ -241,18 +172,13 @@ const PLAIN_TEXT_ALIASES: [RegExp, string][] = [
   [/^forget\s+all$/i, "/forget all"],
   [/^clear\s+(my\s+)?memor(y|ies)$/i, "/clear_memories"],
   [/^reset\s+memory$/i, "/clear_memories"],
-  [/^wipe\s+(session|history|memory)$/i, "/clear_memories"],
   [/^show\s+help$/i, "/help"],
   [/^all\s+commands$/i, "/help"],
-
-  // Single-word exact matches (fallback)
+  // Single-word
   [/^status$/i, "/status"],
   [/^stats$/i, "/status"],
-  [/^usage$/i, "/usage"],
-  [/^tokens?$/i, "/usage"],
   [/^help$/i, "/help"],
   [/^commands$/i, "/help"],
-  [/^agents?$/i, "/agents"],
   [/^compact$/i, "/compact"],
   [/^new$/i, "/new"],
   [/^reset$/i, "/reset"],
@@ -263,7 +189,6 @@ const PLAIN_TEXT_ALIASES: [RegExp, string][] = [
   [/^reminders?$/i, "/reminders"],
   [/^heartbeat$/i, "/heartbeat"],
   [/^schedule$/i, "/heartbeat"],
-  [/^scheduler$/i, "/heartbeat"],
 ];
 
 export async function handleSlashCommand(
@@ -272,7 +197,6 @@ export async function handleSlashCommand(
 ): Promise<SlashCommandResult> {
   let trimmed = text.trim();
 
-  // Plain-text alias check (regex-based, supports multi-word phrases)
   for (const [pattern, command] of PLAIN_TEXT_ALIASES) {
     if (pattern.test(trimmed)) {
       trimmed = command;
@@ -280,12 +204,10 @@ export async function handleSlashCommand(
     }
   }
 
-  // Slash commands must start with '/'
   if (!trimmed.startsWith("/")) {
     return { handled: false };
   }
 
-  // Split on whitespace: ["/command", ...args]
   const parts = trimmed.split(/\s+/);
   const command = parts[0].toLowerCase();
   const args = parts.slice(1);
@@ -299,9 +221,6 @@ export async function handleSlashCommand(
     case "/status":
       return handleStatus(chatId);
 
-    case "/usage":
-      return handleUsage(chatId);
-
     case "/compact":
       return handleCompact(chatId);
 
@@ -313,9 +232,6 @@ export async function handleSlashCommand(
 
     case "/heartbeat_set":
       return handleHeartbeatSet(args);
-
-    case "/agents":
-      return handleAgents();
 
     case "/pin":
       return handlePin(chatId, args);
@@ -335,23 +251,7 @@ export async function handleSlashCommand(
     case "/clear_memories":
       return handleClearMemories(chatId);
 
-    case "/export":
-      return handleExport(chatId);
-
-    case "/profile":
-      return handleProfile(args);
-
-    case "/skills":
-      return handleSkills();
-
-    case "/skill_feedback":
-      return handleSkillFeedback(args);
-
-    case "/skill_refine":
-      return await handleSkillRefine(args);
-
     default:
-      // Unknown slash command — let the LLM handle it naturally
       return { handled: false };
   }
 }
@@ -364,29 +264,29 @@ async function handleStatus(chatId: string): Promise<SlashCommandResult> {
   const { getCoreMemoryCount } = await import("../memory/core.js");
   const reminderCount = getPendingReminderCount();
   const memoryCount = getCoreMemoryCount();
-  const response = formatSessionStatus(chatId, messageCount, reminderCount, memoryCount);
-  return { handled: true, response };
-}
 
-async function handleUsage(chatId: string): Promise<SlashCommandResult> {
-  const response = formatUsageReport(chatId);
+  const uptime = formatDuration(Math.round(process.uptime() * 1000));
+
+  const response = [
+    "📊 **Session Status**\n",
+    `🤖 **Bot Uptime:**         ${uptime}`,
+    `💬 **Messages in Buffer:** ${messageCount}`,
+    `🧠 **Core Memories:**      ${memoryCount}`,
+    `⏰ **Pending Reminders:**  ${reminderCount}`,
+    "",
+    `🔧 **Active Model:**       \`${getEffectiveModel(chatId)}\``,
+  ].join("\n");
+
   return { handled: true, response };
 }
 
 async function handleNew(chatId: string): Promise<SlashCommandResult> {
-  // Clear DB history + rolling summary
   await clearChatHistory(chatId);
-
-  // Reset in-memory session stats
-  resetSessionStats(chatId);
-
-  // Reset model override
   clearModelOverride(chatId);
 
   const response = [
     "🆕 **New session started.**\n",
     "✅ Conversation history cleared",
-    "✅ Session stats reset",
     "✅ Model override cleared",
     "",
     `Active model: \`${getEffectiveModel(chatId)}\``,
@@ -406,7 +306,6 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
   const override = sessionModelOverrides.get(chatId);
   const provider = getProviderName(currentModel);
 
-  // /model — show current state
   if (args.length === 0) {
     const lines = [
       "🤖 **Model Info**\n",
@@ -430,21 +329,19 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
       "**Free — DeepSeek:**  `deepseek` | `deepseek-r1` | `deepseek-r1-zero`",
       "**Free — Qwen:**      `qwen` | `qwen-coder`",
       "**Free — Mistral:**   `mistral` | `mistral-7b`",
-      "**Free — Other:**     `phi` | `nemotron` | `gpt-oss` | `step-flash` | `trinity`",
+      "**Free — Other:**     `phi` | `nemotron`",
       "",
       "**Paid — Claude:**    `claude` | `claude-opus` | `claude-haiku` | `claude-3.5`",
       "**Paid — GPT:**       `gpt` | `gpt-4o-mini` | `gpt-5` | `gpt-5-mini` | `o3` | `o4-mini`",
-      "**Paid — Llama:**     `llama-paid` | `llama-3.3`",
       "**Paid — Other:**     `mistral-large` | `qwq` | `deepseek-paid` | `deepseek-r1-paid`",
       "",
-      "**Any model:**        `/model provider/model-name` (e.g. `/model anthropic/claude-3.5-sonnet`)",
+      "**Any model:**        `/model provider/model-name`",
       "**Reset to default:** `/model reset`",
     );
 
     return { handled: true, response: lines.join("\n") };
   }
 
-  // /model reset — remove override
   if (args[0].toLowerCase() === "reset") {
     clearModelOverride(chatId);
     return {
@@ -453,7 +350,6 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
     };
   }
 
-  // /model <name> — set override
   const resolved = resolveModel(args[0]);
   if (!resolved) {
     return {
@@ -490,7 +386,6 @@ function handleHeartbeatSet(args: string[]): SlashCommandResult {
         "Sets the morning check-in time (IST, 24-hour format).",
         "",
         "Example: `/heartbeat_set 09:00`",
-        "Evening briefing time is set via `HEARTBEAT_EVENING_TIME` in your environment.",
       ].join("\n"),
     };
   }
@@ -510,7 +405,7 @@ function handleHeartbeatSet(args: string[]): SlashCommandResult {
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
     return {
       handled: true,
-      response: "Invalid time. Hour: 0\u201323, Minute: 0\u201359.",
+      response: "Invalid time. Hour: 0–23, Minute: 0–59.",
     };
   }
 
@@ -519,7 +414,7 @@ function handleHeartbeatSet(args: string[]): SlashCommandResult {
     const timeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
     return {
       handled: true,
-      response: `\u2705 Morning check-in updated to **${timeStr} IST**.`,
+      response: `✅ Morning check-in updated to **${timeStr} IST**.`,
     };
   } else {
     return {
@@ -534,28 +429,20 @@ function handleHelp(): SlashCommandResult {
     "⚡ **SUNDAY Commands**\n",
     "**Memory**",
     "`/pin <text>`       — Save something to permanent core memory",
-    "`/forget <key>`    — Remove a core memory entry (`/forget all` clears all)",
-    "`/memories`        — View all pinned core memory entries",
-    "`/export`          — Full dump of all memory tiers (profile + core + long-term)",
-    "`/profile`         — View your auto-built user profile",
-    "`/profile clear`   — Reset the user profile (rebuilds automatically)",
+    "`/forget <key>`     — Remove a core memory entry (`/forget all` clears all)",
+    "`/memories`         — View all pinned core memory entries",
+    "`/clear_memories`   — Clear session buffer + summary (core stays)",
     "",
     "**Session**",
-    "`/status`          — Uptime, token usage, memory stats",
-    "`/usage`           — Focused token breakdown",
-    "`/new`             — Start fresh (clear history, reset overrides)",
-    "`/compact`         — Compress buffer into a rolling summary",
-    "`/clear_memories`  — Clear session buffer + summary (core stays)",
-    "`/model [name]`    — Show or switch model for this session",
+    "`/status`           — Uptime, message count, memory stats",
+    "`/new`              — Start fresh (clear history, reset model override)",
+    "`/compact`          — Compress buffer into a rolling summary",
+    "`/model [name]`     — Show or switch model for this session",
     "",
-    "**Heartbeat**",
-    "`/heartbeat`       — Show scheduler status (morning + evening jobs)",
-    "`/heartbeat_set`   — Change morning check-in time: `/heartbeat_set 09:00`",
-    "`/reminders`       — View pending reminders",
-    "",
-    "**Agents & Skills**",
-    "`/agents`          — List available sub-agents",
-    "`/skills`          — List auto-generated skills SUNDAY has learned",
+    "**Heartbeat & Reminders**",
+    "`/heartbeat`        — Show scheduler status",
+    "`/heartbeat_set`    — Change morning check-in time: `/heartbeat_set 09:00`",
+    "`/reminders`        — View pending reminders",
     "",
     "_Commands are handled locally and never sent to the LLM._",
   ].join("\n");
@@ -563,20 +450,17 @@ function handleHelp(): SlashCommandResult {
   return { handled: true, response };
 }
 
-
 async function handlePin(chatId: string, args: string[]): Promise<SlashCommandResult> {
   if (args.length === 0) {
     return {
       handled: true,
       response: [
         "📌 **Pin to Memory**\n",
-        "Save anything to permanent core memory.\n",
         "**Usage:**",
         "`/pin <key> <value>` — Save with a specific key",
-        "`/pin <value>`       — Auto-generate a key (pin_1, pin_2, ...)",
-        "",
+        "`/pin <value>`       — Auto-generate a key\n",
         "**Examples:**",
-        "`/pin api_key My API key is in .env.local`",
+        "`/pin my_goal Build a profitable SaaS by June`",
         "`/pin Buy groceries on Sunday`",
       ].join("\n"),
     };
@@ -585,12 +469,10 @@ async function handlePin(chatId: string, args: string[]): Promise<SlashCommandRe
   let key: string;
   let value: string;
 
-  // If first arg looks like a key (no spaces, short), use it as the key
   if (args.length >= 2 && !args[0].includes(" ") && args[0].length <= 30) {
     key = `pin_${args[0]}`;
     value = args.slice(1).join(" ");
   } else {
-    // Auto-generate key with timestamp
     key = `pin_${Date.now()}`;
     value = args.join(" ");
   }
@@ -609,56 +491,6 @@ async function handlePin(chatId: string, args: string[]): Promise<SlashCommandRe
   }
 }
 
-function handleAgents(): SlashCommandResult {
-  const agentLines: string[] = [];
-
-  for (const profile of Object.values(PROFILES)) {
-    // Pull the first meaningful description line from the system prompt
-    const description = profile.systemPrompt
-      .split("\n")
-      .find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("You are"))
-      ?.trim() ?? "";
-
-    const toolInfo = profile.allowedTools
-      ? profile.allowedTools.join(", ")
-      : profile.deniedTools
-        ? `All tools except: ${profile.deniedTools.join(", ")}`
-        : "All tools";
-
-    agentLines.push(
-      `${profile.icon} **${profile.label}** — \`${profile.name}\``,
-      `> ${description}`,
-      `> 🛠 ${toolInfo}`,
-      `> ⚙️ temp \`${profile.temperature}\` · max \`${profile.maxIterations}\` iterations`,
-      "",
-    );
-  }
-
-  const response = [
-    "🤖 **Sub-Agent Directory**\n",
-    "SUNDAY automatically delegates to the right specialist.",
-    "You don't need to invoke agents manually — just ask naturally.\n",
-    "───────────────────────────",
-    "",
-    ...agentLines,
-    "───────────────────────────",
-    "",
-    "**When to use each agent:**",
-    "🔬 Research  → Deep dives, fact-checking, news, documentation",
-    "💻 Code      → Write, review, debug, or explain code",
-    "📋 Summary   → Condense articles, docs, or long content",
-    "🎨 Creative  → Stories, poems, copy, or any creative writing",
-    "📊 Analysis  → Compare options, spot patterns, make recommendations",
-    "💼 Jobs      → Find real job listings via Apify (LinkedIn, Indeed, Naukri)",
-    "",
-    "_Tasks are matched to the best agent automatically._",
-  ].join("\n");
-
-  return { handled: true, response };
-}
-
-// ─── Memory & Reminders Commands ──────────────────────────────────
-
 async function handleForget(args: string[]): Promise<SlashCommandResult> {
   if (args.length === 0) {
     return {
@@ -673,19 +505,15 @@ async function handleForget(args: string[]): Promise<SlashCommandResult> {
     };
   }
 
-  const { deleteCoreMemory, getCoreMemory, clearAllCoreMemories, buildCoreMemoryPrompt } = await import("../memory/core.js");
+  const { deleteCoreMemory, clearAllCoreMemories } = await import("../memory/core.js");
 
-  // /forget all — nuclear option
   if (args[0].toLowerCase() === "all") {
     await clearAllCoreMemories();
     return { handled: true, response: "🗑 All core memories cleared." };
   }
 
-  // Join all args — supports keys with spaces
   const key = args.join(" ");
-
   if (!getCoreMemory(key)) {
-    // Show available keys to help the user
     const memoriesStr = buildCoreMemoryPrompt();
     const keyHint = memoriesStr
       ? `\n\n**Available keys:**\n${memoriesStr.replace("## Core Memory (Always Active)\n", "")}`
@@ -698,14 +526,19 @@ async function handleForget(args: string[]): Promise<SlashCommandResult> {
 }
 
 async function handleMemories(): Promise<SlashCommandResult> {
-  const { buildCoreMemoryPrompt } = await import("../memory/core.js");
   const memoriesStr = buildCoreMemoryPrompt();
 
   if (!memoriesStr) {
-    return { handled: true, response: "📭 Your core memory is completely empty.\n\nUse `/pin <key> <value>` to pin long-term traits, preferences, or goals." };
+    return {
+      handled: true,
+      response: "📭 Your core memory is completely empty.\n\nUse `/pin <key> <value>` to pin long-term traits, preferences, or goals.",
+    };
   }
 
-  return { handled: true, response: `🧠 **Your Core Memory**\n\n${memoriesStr.replace("## Core Memory (Always Active)\n", "")}\n\n_Use \`/forget <key>\` to remove an item._` };
+  return {
+    handled: true,
+    response: `🧠 **Your Core Memory**\n\n${memoriesStr.replace("## Core Memory (Always Active)\n", "")}\n\n_Use \`/forget <key>\` to remove an item._`,
+  };
 }
 
 async function handleReminders(): Promise<SlashCommandResult> {
@@ -714,15 +547,7 @@ async function handleReminders(): Promise<SlashCommandResult> {
   return { handled: true, response };
 }
 
-/**
- * Clear session-level memory (conversation buffer + rolling summary)
- * but preserve core memory (long-term identity & preferences).
- *
- * This is softer than /new — it doesn't reset stats or model override.
- */
 async function handleClearMemories(chatId: string): Promise<SlashCommandResult> {
-  const { clearChatHistory, getMessageCount } = await import("../memory/buffer.js");
-
   const countBefore = await getMessageCount(chatId);
   await clearChatHistory(chatId);
 
@@ -733,211 +558,19 @@ async function handleClearMemories(chatId: string): Promise<SlashCommandResult> 
       `Removed **${countBefore}** buffered messages and rolling summary.`,
       "",
       "✅ Core memories are **untouched** (use `/forget` to manage those).",
-      "✅ Session stats and model override are **preserved**.",
       "",
       "_I'll start fresh context from your next message._",
     ].join("\n"),
   };
 }
 
-// ─── Export, Profile & Skills Commands ───────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────
 
-/**
- * /export — Produce a full, human-readable dump of all memory tiers.
- * Inspired by Hermes' transparent MEMORY.md + USER.md approach.
- *
- * Semantic facts are fetched by importance (no vector search needed
- * for a full dump — avoids the empty-query embedding problem).
- */
-async function handleExport(chatId: string): Promise<SlashCommandResult> {
-  const { buildCoreMemoryPrompt, getCoreMemory } = await import("../memory/core.js");
-  const { getSupabase } = await import("../lib/supabase.js");
-
-  const sections: string[] = ["📦 **Memory Export** — _SUNDAY Brain Snapshot_\n"];
-
-  // ── User Profile ───────────────────────────────────────────────
-  const profile = getUserProfile();
-  if (profile) {
-    sections.push("## 👤 User Profile\n" + profile);
-  } else {
-    sections.push("## 👤 User Profile\n_Not built yet — it auto-generates after ~5 messages._");
-  }
-
-  // ── Core Memories (KV) ─────────────────────────────────────────
-  const coreBlock = buildCoreMemoryPrompt();
-  if (coreBlock) {
-    sections.push(coreBlock.replace("## Core Memory (Always Active)", "## 🧠 Core Memories (Always Active)"));
-  } else {
-    sections.push("## 🧠 Core Memories\n_Empty — use `/pin` to add permanent entries._");
-  }
-
-  // ── Rolling Summary (buffer compaction) ───────────────────────
-  const rollingSummary = getCoreMemory(`rolling_summary_${chatId}`);
-  if (rollingSummary) {
-    sections.push("## 📜 Conversation Summary\n" + rollingSummary);
-  }
-
-  // ── Top Semantic Memories (direct DB query, no embedding needed) ──
-  try {
-    const sb = getSupabase();
-    if (sb) {
-      const { data, error } = await sb
-        .from("memories")
-        .select("content, type, importance, category, created_at")
-        .order("importance", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      if (!error && data && data.length > 0) {
-        const facts = data.map((row: {
-          content: string;
-          type: string;
-          importance: number;
-          category?: string;
-          created_at?: string;
-        }) => {
-          const cat = row.category ? `[${row.category}]` : "";
-          const ago = row.created_at ? formatTimeAgo(row.created_at) : "";
-          return `• ${cat}[⭐${row.importance}]${ago ? ` (${ago})` : ""} ${row.content}`;
-        });
-        sections.push("## 💾 Long-Term Memories (Top 10 by Importance)\n" + facts.join("\n"));
-      } else {
-        sections.push("## 💾 Long-Term Memories\n_None stored yet — facts are extracted from your conversations._");
-      }
-    }
-  } catch {
-    // Supabase unavailable — skip silently
-    sections.push("## 💾 Long-Term Memories\n_Unavailable (Supabase offline)._");
-  }
-
-  sections.push("_Use `/forget <key>` to remove core entries · `/profile clear` to reset profile · `/memories` for quick core view_");
-
-  return { handled: true, response: sections.join("\n\n") };
-}
-
-/**
- * Format a timestamp into a human-readable "N ago" string (used by /export).
- */
-function formatTimeAgo(isoDate: string): string {
-  const now = Date.now();
-  const then = new Date(isoDate).getTime();
-  const diffMs = now - then;
-  const minutes = Math.floor(diffMs / 60000);
-  if (minutes < 60) return `${minutes}m ago`;
+function formatDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return days < 7 ? `${days}d ago` : `${Math.floor(days / 7)}w ago`;
-}
-
-/**
- * /profile — View or clear the auto-built user profile.
- */
-async function handleProfile(args: string[]): Promise<SlashCommandResult> {
-  // /profile clear
-  if (args[0]?.toLowerCase() === "clear") {
-    await clearUserProfile();
-    return {
-      handled: true,
-      response: "🗑 **User profile cleared.** It will rebuild automatically as you chat.",
-    };
-  }
-
-  // /profile (view)
-  const profile = getUserProfile();
-  if (!profile || profile.trim().length === 0) {
-    return {
-      handled: true,
-      response: [
-        "👤 **User Profile**\n",
-        "_No profile built yet._",
-        "",
-        "SUNDAY auto-builds your profile as you chat — it captures your preferences,",
-        "expertise, timezone, active projects, and communication style.",
-        "",
-        "It updates every 5 messages in the background and is injected into every",
-        "response so I always remember who you are.",
-        "",
-        "Use `/profile clear` to reset it.",
-      ].join("\n"),
-    };
-  }
-
-  return {
-    handled: true,
-    response: [
-      "👤 **Your User Profile** _(auto-built by SUNDAY)_\n",
-      profile,
-      "",
-      "_Updates automatically every 5 turns · `/profile clear` to reset_",
-    ].join("\n"),
-  };
-}
-
-/**
- * /skills — List auto-generated skills SUNDAY has learned from delegated tasks.
- */
-function handleSkills(): SlashCommandResult {
-  const skillsText = listAutoSkills();
-  return {
-    handled: true,
-    response: skillsText +
-      "\n\n_💡 Rate skills with `/skill_feedback good|bad <slug>` · Refine with `/skill_refine <slug>`_",
-  };
-}
-
-/**
- * /skill_feedback good|bad <slug> [optional reason]
- * Apply user feedback to a skill's effectiveness score.
- */
-function handleSkillFeedback(args: string[]): SlashCommandResult {
-  if (args.length < 2) {
-    return {
-      handled: true,
-      response: [
-        "📊 **Skill Feedback**\n",
-        "Rate a skill to help SUNDAY improve its learning:\n",
-        "**Usage:**",
-        "`/skill_feedback good <slug>`  — Mark a skill as helpful (+2 effectiveness)",
-        "`/skill_feedback bad <slug>`   — Mark a skill as unhelpful (−2 effectiveness)\n",
-        "Use `/skills` to see skill slugs.",
-      ].join("\n"),
-    };
-  }
-
-  const signal = args[0].toLowerCase();
-  if (signal !== "good" && signal !== "bad") {
-    return {
-      handled: true,
-      response: "❌ Invalid signal. Use `good` or `bad`.\nExample: `/skill_feedback good research-assistant`",
-    };
-  }
-
-  const slug = args[1].toLowerCase().replace(/\.md$/, "");
-  const reason = args.slice(2).join(" ") || undefined;
-
-  const result = applySkillFeedback({ slug, signal, reason });
-  return { handled: true, response: result };
-}
-
-/**
- * /skill_refine <slug>
- * Trigger LLM-based refinement of a specific auto-generated skill.
- */
-async function handleSkillRefine(args: string[]): Promise<SlashCommandResult> {
-  if (args.length === 0) {
-    return {
-      handled: true,
-      response: [
-        "🔬 **Skill Refinement**\n",
-        "Trigger LLM-based refinement to improve a skill's instructions.\n",
-        "**Usage:** `/skill_refine <slug>`\n",
-        "Use `/skills` to see skill slugs.",
-      ].join("\n"),
-    };
-  }
-
-  const slug = args[0].toLowerCase().replace(/\.md$/, "");
-  const result = await manuallyRefineSkill(slug);
-  return { handled: true, response: result };
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+  return `${seconds}s`;
 }

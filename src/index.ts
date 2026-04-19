@@ -13,7 +13,7 @@ import { mcpManager } from "./mcp/mcp-manager.js";
 import { handleSlashCommand, getEffectiveModel } from "./commands/slash-commands.js";
 import { getProviderName } from "./lib/router.js";
 import { startWebhookServer, stopWebhookServer } from "./channels/webhook.js";
-import { restoreReminders, initReminderCallback } from "./tools/set_reminder.js";
+import { restoreReminders } from "./tools/set_reminder.js";
 import { runDeprecationSweep } from "./skills/feedback.js";
 import { getEmbeddingProvider, getEmbeddingDimensions } from "./lib/embeddings.js";
 

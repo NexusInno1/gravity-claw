@@ -13,6 +13,13 @@ import { ENV } from "../config.js";
 
 const MAX_BUFFER_SIZE = 20;
 
+/**
+ * Per-chat compaction lock — prevents two concurrent saveMessage calls
+ * from both triggering maybeCompact and double-deleting the same messages.
+ * CRIT-01 fix: simple in-process mutex using a Set of chatIds.
+ */
+const compactingChats = new Set<string>();
+
 interface BufferMessage {
   role: string;
   content: string;
@@ -85,9 +92,20 @@ export async function getRecentMessages(
  * Preserves decisions, commitments, and unresolved items.
  */
 async function maybeCompact(chatId: string): Promise<void> {
+  // CRIT-01: Per-chat lock — bail out immediately if compaction is already
+  // in progress for this chat. Without this guard, two concurrent saveMessage
+  // calls (user message + assistant response in the same turn) both see count
+  // > MAX_BUFFER_SIZE and race to delete the same overflow rows, causing
+  // double deletion and potential summary loss.
+  if (compactingChats.has(chatId)) {
+    console.log(`[Buffer] Compaction already in progress for chat ${chatId} — skipping.`);
+    return;
+  }
+
   const sb = getSupabase();
   if (!sb) return;
 
+  compactingChats.add(chatId);
   try {
     // Count total messages for this chat
     const { count, error: countError } = await sb
@@ -173,6 +191,9 @@ ${transcript}`,
     }
   } catch (err) {
     console.error("[Buffer] Compaction error:", err);
+  } finally {
+    // Always release the lock — even if LLM or DB calls threw
+    compactingChats.delete(chatId);
   }
 }
 

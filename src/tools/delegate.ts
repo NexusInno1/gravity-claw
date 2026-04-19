@@ -115,7 +115,7 @@ export async function executeDelegate(
         // Dynamic import to break circular dependency (loop → delegate → loop)
         const { runSubAgentLoop } = await import("../agent/sub-loop.js");
 
-        const result = await runSubAgentLoop({
+        const { response: result, iterationsUsed } = await runSubAgentLoop({
             message: subAgentMessage,
             chatId,
             profile,
@@ -124,15 +124,15 @@ export async function executeDelegate(
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         const elapsedNum = parseFloat(elapsed);
-        console.log(`[Delegate] ${profile.icon} ${profile.label} completed in ${elapsed}s`);
+        console.log(`[Delegate] ${profile.icon} ${profile.label} completed in ${elapsed}s (${iterationsUsed} iteration(s))`);
 
-        // Trigger background skill extraction (async — never blocks response)
+        // Trigger background skill extraction with REAL iteration count (HIGH-02 fix)
         triggerSkillExtraction({
             agentName: profile.name,
             agentLabel: profile.label,
             taskDescription: task,
             result,
-            iterationsUsed: Math.round(elapsedNum / 3) + 1, // estimate from timing
+            iterationsUsed, // real count from sub-loop, not a timing estimate
             elapsedSeconds: elapsedNum,
         });
 

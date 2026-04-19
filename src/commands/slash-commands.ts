@@ -342,7 +342,7 @@ export async function handleSlashCommand(
       return handleProfile(args);
 
     case "/skills":
-      return handleSkills();
+      return await handleSkills();
 
     case "/skill_feedback":
       return handleSkillFeedback(args);
@@ -877,8 +877,8 @@ async function handleProfile(args: string[]): Promise<SlashCommandResult> {
 /**
  * /skills — List auto-generated skills SUNDAY has learned from delegated tasks.
  */
-function handleSkills(): SlashCommandResult {
-  const skillsText = listAutoSkills();
+async function handleSkills(): Promise<SlashCommandResult> {
+  const skillsText = await listAutoSkills();
   return {
     handled: true,
     response: skillsText +

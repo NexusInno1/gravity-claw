@@ -45,6 +45,15 @@ export interface SubAgentParams {
     model: string;
 }
 
+/** HIGH-02 Fix: return the real iteration count so delegate.ts can report it
+ * accurately to triggerSkillExtraction() instead of fabricating from timing. */
+export interface SubAgentResult {
+    /** The sub-agent's final text output. */
+    response: string;
+    /** Exact number of LLM iterations used (not an estimate). */
+    iterationsUsed: number;
+}
+
 // ─── Tool Resolution ─────────────────────────────────────────────
 
 function getSubAgentTools(
@@ -87,16 +96,31 @@ function getSubAgentTools(
         }
     }
 
-    // IMPORTANT: Never give a sub-agent the `delegate` tool (prevent recursion)
+    // Strip hard-denied tools from both schema and permittedNames.
+    // Previously only 'delegate' was filtered here; extend to all memory-mutating
+    // tools so the LLM never sees them as options (HIGH-05 belt-and-suspenders).
     const allSchemas = [...builtinSchemas, ...mcpSchemas].filter(
-        (s) => s.name !== "delegate",
+        (s) => !SUB_AGENT_HARD_DENY.has(s.name),
     );
-    permittedNames.delete("delegate");
+    for (const denied of SUB_AGENT_HARD_DENY) {
+        permittedNames.delete(denied);
+    }
 
     return { schemas: allSchemas, permittedNames };
 }
 
 // ─── Tool Execution ──────────────────────────────────────────────
+
+// HIGH-05: Memory-mutating tools are NEVER permitted for sub-agents,
+// regardless of what the profile's allowedTools list says.
+// A crafted task like "research X, then call remember_fact" could otherwise
+// permanently overwrite user core memory.
+// This is a defense-in-depth layer on top of the profile filtering.
+const SUB_AGENT_HARD_DENY = new Set([
+    "remember_fact",
+    "set_reminder",
+    "delegate",       // also blocked in getSubAgentTools() — belt-and-suspenders
+]);
 
 async function executeSubAgentTool(
     name: string,
@@ -104,6 +128,12 @@ async function executeSubAgentTool(
     chatId: string,
     permittedNames: Set<string>,
 ): Promise<string> {
+    // Hard deny — memory-mutating tools are forbidden for all sub-agents
+    if (SUB_AGENT_HARD_DENY.has(name)) {
+        console.warn(`[SubAgent] Blocked attempt to call restricted tool: "${name}"`);
+        return `Error: Tool "${name}" is not available to sub-agents.`;
+    }
+
     if (!permittedNames.has(name)) {
         return `Error: Tool "${name}" is not available to this sub-agent.`;
     }
@@ -133,7 +163,7 @@ async function executeSubAgentTool(
  *
  * @returns The sub-agent's final text response.
  */
-export async function runSubAgentLoop(params: SubAgentParams): Promise<string> {
+export async function runSubAgentLoop(params: SubAgentParams): Promise<SubAgentResult> {
     const { message, chatId, profile, model } = params;
     const { schemas: tools, permittedNames } = getSubAgentTools(profile);
 
@@ -229,7 +259,10 @@ export async function runSubAgentLoop(params: SubAgentParams): Promise<string> {
                 "Online",
                 "Idle — waiting for tasks",
             ).catch(() => { });
-            return result || "Sub-agent produced no output.";
+            return {
+                response: result || "Sub-agent produced no output.",
+                iterationsUsed: iterationCount,
+            };
         }
     }
 
@@ -237,5 +270,8 @@ export async function runSubAgentLoop(params: SubAgentParams): Promise<string> {
     console.warn(
         `[SubAgent/${profile.name}] Hit max iterations (${profile.maxIterations})`,
     );
-    return "Sub-agent reached its iteration limit without producing a final response.";
+    return {
+        response: "Sub-agent reached its iteration limit without producing a final response.",
+        iterationsUsed: iterationCount,
+    };
 }

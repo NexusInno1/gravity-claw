@@ -132,14 +132,26 @@ function nextCronFire(cronExpr: string): Date {
   }
 
   // Handle "*/N" minute patterns (e.g. "*/30 * * * *")
+  // MED-05 Fix: the original calculation mixed UTC timestamp arithmetic with
+  // getMinutes()/getSeconds() local field reads, producing wrong results when
+  // now.getUTCMinutes() > interval. The correct approach: compute the total
+  // minutes elapsed today (UTC), find the next N-aligned minute, then build
+  // a clean Date from year/month/day + that aligned minute.
   if (minPart.startsWith("*/")) {
     const interval = parseInt(minPart.slice(2), 10);
-    const nextMs = Math.ceil((now.getMinutes() + now.getSeconds() / 60) / interval) * interval * 60_000;
-    return new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-      + (now.getUTCHours() * 3600 + now.getUTCMinutes() * 60) * 1000
-      + nextMs - (now.getUTCMinutes() * 60 + now.getUTCSeconds()) * 1000,
-    );
+    if (!Number.isFinite(interval) || interval <= 0) return new Date(Date.now() + 60_000);
+
+    const todayMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+    // Round up to the next exact interval boundary (never fire "now")
+    const nextAlignedMinute = Math.ceil((todayMinutes + 1) / interval) * interval;
+
+    const nextDate = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+    ));
+    nextDate.setUTCMinutes(nextAlignedMinute, 0, 0); // handles overnight rollover automatically
+    return nextDate;
   }
 
   // Handle "0 * * * *" (every hour at minute 0)

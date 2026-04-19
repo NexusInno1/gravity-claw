@@ -38,8 +38,8 @@ console.log(`[Embeddings] Provider: ${PROVIDER}, dimensions: ${EMBEDDING_DIMENSI
 
 async function embedWithGemini(text: string): Promise<number[] | null> {
   try {
-    const ai = getAI();
-    const result = await ai.models.embedContent({
+    const { client } = getAI();
+    const result = await client.models.embedContent({
       model: "gemini-embedding-001",
       contents: text,
       config: {
@@ -53,9 +53,18 @@ async function embedWithGemini(text: string): Promise<number[] | null> {
   }
 }
 
-async function embedWithOpenAI(text: string): Promise<number[] | null> {
+async function embedWithOpenAI(
+  text: string,
+  baseUrlOverride?: string,
+): Promise<number[] | null> {
   const apiKey = process.env.OPENAI_API_KEY || ENV.OPENROUTER_API_KEY;
-  const baseUrl = process.env.OPENAI_EMBEDDING_BASE_URL || "https://api.openai.com/v1";
+  // HIGH-04: Accept baseUrl as an explicit parameter instead of reading from
+  // process.env, which is mutable global state. The original code temporarily
+  // wrote to process.env.OPENAI_EMBEDDING_BASE_URL across an async gap, causing
+  // concurrent embedWithOpenRouter() calls to corrupt each other's base URL.
+  const baseUrl = baseUrlOverride
+    || process.env.OPENAI_EMBEDDING_BASE_URL
+    || "https://api.openai.com/v1";
 
   if (!apiKey) {
     console.warn("[Embeddings/OpenAI] No API key found — falling back to Gemini.");
@@ -105,20 +114,10 @@ async function embedWithOpenRouter(text: string): Promise<number[] | null> {
     return embedWithGemini(text);
   }
 
-  // OpenRouter proxies OpenAI-compatible embedding endpoints
-  const originalBaseUrl = process.env.OPENAI_EMBEDDING_BASE_URL;
-  process.env.OPENAI_EMBEDDING_BASE_URL = "https://openrouter.ai/api/v1";
-
-  const result = await embedWithOpenAI(text);
-
-  // Restore env
-  if (originalBaseUrl !== undefined) {
-    process.env.OPENAI_EMBEDDING_BASE_URL = originalBaseUrl;
-  } else {
-    delete process.env.OPENAI_EMBEDDING_BASE_URL;
-  }
-
-  return result;
+  // HIGH-04: Pass the OpenRouter base URL directly as a parameter.
+  // The old code temporarily mutated process.env.OPENAI_EMBEDDING_BASE_URL
+  // across an await gap, which caused concurrent calls to corrupt each other.
+  return embedWithOpenAI(text, "https://openrouter.ai/api/v1");
 }
 
 async function embedWithCustom(text: string): Promise<number[] | null> {

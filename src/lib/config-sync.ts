@@ -89,25 +89,57 @@ function validateModel(model: string): string {
 function applyConfigRow(key: string, value: string): void {
     switch (key) {
         case "primary_model":
+            if (!value || value.trim().length === 0) {
+                console.warn(`[ConfigSync] Rejected invalid primary_model: "${value}" — must be non-empty`);
+                break;
+            }
             runtimeConfig.primaryModel = validateModel(value);
             break;
-        case "temperature":
-            runtimeConfig.temperature = parseFloat(value) || 0.7;
+
+        case "temperature": {
+            // MED-07: temperature must be [0, 2]. Values like 999 or NaN would
+            // cause "invalid_argument" on every LLM call.
+            const t = parseFloat(value);
+            if (!Number.isFinite(t) || t < 0 || t > 2) {
+                console.warn(`[ConfigSync] Rejected invalid temperature: "${value}" — must be 0–2. Using 0.7.`);
+                runtimeConfig.temperature = 0.7;
+            } else {
+                runtimeConfig.temperature = t;
+            }
             break;
+        }
+
         case "auto_compact":
             runtimeConfig.autoCompact = value === "true";
             break;
+
         case "semantic_memory":
             runtimeConfig.semanticMemory = value === "true";
             break;
-        case "fact_threshold":
-            runtimeConfig.factThreshold = parseInt(value, 10) || 4;
+
+        case "fact_threshold": {
+            // MED-07: fact_threshold ≤ 0 would store every trivial message in
+            // semantic memory, blowing up the vector store with noise.
+            const ft = parseInt(value, 10);
+            if (!Number.isFinite(ft) || ft < 1 || ft > 10) {
+                console.warn(`[ConfigSync] Rejected invalid fact_threshold: "${value}" — must be 1–10. Using 4.`);
+                runtimeConfig.factThreshold = 4;
+            } else {
+                runtimeConfig.factThreshold = ft;
+            }
             break;
+        }
+
         case "delegation":
             runtimeConfig.delegation = value === "true";
             break;
+
         case "show_model_footer":
             runtimeConfig.showModelFooter = value === "true";
+            break;
+
+        default:
+            // Unknown keys silently ignored — forward-compatible with new dashboard fields
             break;
     }
 }

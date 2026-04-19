@@ -3,21 +3,22 @@
  *
  * After a sub-agent completes a complex delegated task, this module
  * evaluates whether the task was novel and complex enough to warrant
- * a reusable skill. If so, it generates a `.md` skill file and saves
- * it to `skills/auto/`.
+ * a reusable skill. If so, it saves the skill to Supabase (primary)
+ * with a local filesystem fallback for offline/dev mode.
  *
- * The existing skills loader (`loader.ts`) already loads from `skills/`
- * recursively, so auto-generated skills are automatically picked up.
+ * ARCH-01 Fix: Skills are now persisted to the existing Supabase `skills`
+ * table, which is already read by loader.ts on startup and via Realtime
+ * hot-reload. This means auto-generated skills survive container restarts,
+ * deployments, and Railway redeploys — making the learning loop production-safe.
  *
  * Criteria for skill creation:
- *   1. Task used 3+ tool calls (multi-step)
- *   2. Sub-agent used 2+ iterations
- *   3. Task description is specific enough (not trivial)
+ *   1. Sub-agent used 2+ iterations (multi-step)
+ *   2. Task description is specific enough (≥80 chars)
+ *   3. Result is substantial (≥200 chars)
  *   4. No existing skill already covers this pattern
  *
- * Skills are saved with frontmatter metadata for tracking:
+ * Skills are saved with metadata:
  *   - auto_generated: true
- *   - created_at: ISO timestamp
  *   - source_agent: which sub-agent produced it
  *   - effectiveness: starts at 0 (incremented on reuse)
  */
@@ -27,6 +28,7 @@ import { resolve, basename } from "path";
 import { routedChat } from "../lib/router.js";
 import { getRuntimeConfig } from "../lib/config-sync.js";
 import { getActiveSkills } from "./loader.js";
+import { getSupabase } from "../lib/supabase.js";
 
 // ─── Config ──────────────────────────────────────────────────────
 
@@ -75,34 +77,13 @@ export function triggerSkillExtraction(event: TaskCompletionEvent): void {
  */
 function shouldConsiderForSkill(event: TaskCompletionEvent): boolean {
   // Must have used at least 2 iterations (indicates multi-step work)
-  if (event.iterationsUsed < 2) {
-    return false;
-  }
-
+  if (event.iterationsUsed < 2) return false;
   // Task description must be substantial
-  if (event.taskDescription.length < MIN_TASK_LENGTH) {
-    return false;
-  }
-
+  if (event.taskDescription.length < MIN_TASK_LENGTH) return false;
   // Result must be substantial
-  if (event.result.length < MIN_RESULT_LENGTH) {
-    return false;
-  }
-
-  // Skip if we've hit the skill cap
-  const existingAutoSkills = getAutoSkillCount();
-  if (existingAutoSkills >= MAX_AUTO_SKILLS) {
-    console.log(
-      `[AutoSkill] Skill cap reached (${MAX_AUTO_SKILLS}) — skipping.`,
-    );
-    return false;
-  }
-
+  if (event.result.length < MIN_RESULT_LENGTH) return false;
   // Skip creative agent — its outputs are one-off by nature
-  if (event.agentName === "creative") {
-    return false;
-  }
-
+  if (event.agentName === "creative") return false;
   return true;
 }
 
@@ -111,9 +92,16 @@ function shouldConsiderForSkill(event: TaskCompletionEvent): boolean {
  * generate the skill content + metadata.
  */
 async function extractAndSaveSkill(event: TaskCompletionEvent): Promise<void> {
+  // Check cap against Supabase first, then filesystem
+  const totalCount = await getTotalAutoSkillCount();
+  if (totalCount >= MAX_AUTO_SKILLS) {
+    console.log(`[AutoSkill] Skill cap reached (${MAX_AUTO_SKILLS}) — skipping.`);
+    return;
+  }
+
   // Get existing skill names to avoid duplicates
   const existingSkills = getActiveSkills().map((s) => s.name);
-  const autoSkillNames = getAutoSkillNames();
+  const autoSkillNames = await getAutoSkillNames();
   const allSkillNames = [...existingSkills, ...autoSkillNames];
 
   const prompt = `You are an AI assistant that creates reusable "skills" — mini instruction sets that help an AI agent handle similar tasks better in the future.
@@ -174,9 +162,7 @@ If NOT creating a skill:
     const result = JSON.parse(cleanJson);
 
     if (!result.create) {
-      console.log(
-        `[AutoSkill] Skipped — ${result.reason || "not worthy of a skill"}`,
-      );
+      console.log(`[AutoSkill] Skipped — ${result.reason || "not worthy of a skill"}`);
       return;
     }
 
@@ -186,19 +172,27 @@ If NOT creating a skill:
       return;
     }
 
-    // Save the skill file
-    saveAutoSkill(result, event);
+    // Save the skill — Supabase primary, filesystem fallback
+    await saveAutoSkill(result, event);
   } catch (err) {
     console.error("[AutoSkill] Skill extraction failed:", err);
   }
 }
 
-// ─── File Operations ─────────────────────────────────────────────
+// ─── Persistence ─────────────────────────────────────────────────
 
 /**
- * Save an auto-generated skill to `skills/auto/`.
+ * Save an auto-generated skill.
+ *
+ * ARCH-01: Primary store is Supabase `skills` table — this table is already
+ * read by loader.ts on startup and hot-reloaded via Supabase Realtime, so
+ * the new skill is immediately visible to the agent on the next turn without
+ * any container restart.
+ *
+ * Filesystem write (skills/auto/<slug>.md) is kept as a fallback for
+ * local/offline development where Supabase is unavailable.
  */
-function saveAutoSkill(
+async function saveAutoSkill(
   skill: {
     name: string;
     slug: string;
@@ -207,57 +201,143 @@ function saveAutoSkill(
     content: string;
   },
   event: TaskCompletionEvent,
-): void {
-  // Ensure the auto directory exists
-  if (!existsSync(AUTO_SKILLS_DIR)) {
-    mkdirSync(AUTO_SKILLS_DIR, { recursive: true });
-  }
-
-  const filename = `${skill.slug}.md`;
-  const filepath = resolve(AUTO_SKILLS_DIR, filename);
-
-  // Don't overwrite existing skills
-  if (existsSync(filepath)) {
-    console.log(
-      `[AutoSkill] Skill "${skill.slug}" already exists — skipping.`,
-    );
-    return;
-  }
-
+): Promise<void> {
   const now = new Date().toISOString();
-  const frontmatter = [
-    "---",
-    `name: ${skill.name}`,
-    `description: ${skill.description}`,
-    `category: ${skill.category}`,
-    `enabled: true`,
-    `auto_generated: true`,
-    `created_at: ${now}`,
-    `source_agent: ${event.agentName}`,
-    `effectiveness: 0`,
-    "---",
-    "",
-  ].join("\n");
 
-  const fileContent = frontmatter + skill.content + "\n";
+  // ── 1. Try Supabase (primary — survives restarts) ─────────────
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      // Check for duplicate slug before inserting
+      const { data: existing } = await sb
+        .from("skills")
+        .select("slug")
+        .eq("slug", skill.slug)
+        .maybeSingle();
 
-  try {
-    writeFileSync(filepath, fileContent, "utf-8");
-    console.log(
-      `[AutoSkill] ✅ Created new skill: "${skill.name}" → ${filename}`,
-    );
-    console.log(
-      `[AutoSkill]    Source: ${event.agentLabel} | Category: ${skill.category}`,
-    );
-  } catch (err) {
-    console.error(`[AutoSkill] Failed to write ${filepath}:`, err);
+      if (existing) {
+        console.log(`[AutoSkill] Skill "${skill.slug}" already exists in Supabase — skipping.`);
+        return;
+      }
+
+      const { error } = await sb.from("skills").insert({
+        name: skill.name,
+        slug: skill.slug,
+        description: skill.description,
+        category: skill.category,
+        content: skill.content,
+        enabled: true,
+        auto_generated: true,
+        source_agent: event.agentName,
+        effectiveness: 0,
+        created_at: now,
+        updated_at: now,
+      });
+
+      if (error) {
+        // If optional columns don't exist yet, retry with base columns only
+        if (error.message?.includes("column") || error.code === "PGRST204" || error.code === "42703") {
+          const { error: retryError } = await sb.from("skills").insert({
+            name: skill.name,
+            slug: skill.slug,
+            description: skill.description,
+            category: skill.category,
+            content: skill.content,
+            enabled: true,
+          });
+
+          if (retryError) {
+            console.error("[AutoSkill] Supabase insert failed (retry):", retryError.message);
+            // Still try filesystem as last resort
+          } else {
+            console.log(`[AutoSkill] ✅ Saved to Supabase (base columns): "${skill.name}"`);
+            writeToFilesystem(skill, event, now);
+            return;
+          }
+        } else {
+          console.error("[AutoSkill] Supabase insert failed:", error.message);
+        }
+      } else {
+        console.log(`[AutoSkill] ✅ Saved to Supabase: "${skill.name}" → ${skill.slug}`);
+        console.log(`[AutoSkill]    Source: ${event.agentLabel} | Category: ${skill.category}`);
+        // Mirror to filesystem for local dev visibility
+        writeToFilesystem(skill, event, now);
+        return;
+      }
+    } catch (err) {
+      console.error("[AutoSkill] Supabase save error:", err);
+    }
   }
+
+  // ── 2. Filesystem fallback (local/offline mode only) ──────────
+  console.log("[AutoSkill] Supabase unavailable — writing to local filesystem only.");
+  writeToFilesystem(skill, event, now);
 }
 
 /**
- * Count how many auto-generated skills exist.
+ * Write skill to the local `skills/auto/` directory.
+ * Used as a fallback when Supabase is unavailable, and as a dev-mode mirror.
  */
-function getAutoSkillCount(): number {
+function writeToFilesystem(
+  skill: { name: string; slug: string; description: string; category: string; content: string },
+  event: TaskCompletionEvent,
+  now: string,
+): void {
+  try {
+    if (!existsSync(AUTO_SKILLS_DIR)) {
+      mkdirSync(AUTO_SKILLS_DIR, { recursive: true });
+    }
+
+    const filename = `${skill.slug}.md`;
+    const filepath = resolve(AUTO_SKILLS_DIR, filename);
+
+    if (existsSync(filepath)) {
+      console.log(`[AutoSkill] Local file "${skill.slug}" already exists — skipping filesystem write.`);
+      return;
+    }
+
+    const frontmatter = [
+      "---",
+      `name: ${skill.name}`,
+      `description: ${skill.description}`,
+      `category: ${skill.category}`,
+      `enabled: true`,
+      `auto_generated: true`,
+      `created_at: ${now}`,
+      `source_agent: ${event.agentName}`,
+      `effectiveness: 0`,
+      "---",
+      "",
+    ].join("\n");
+
+    writeFileSync(filepath, frontmatter + skill.content + "\n", "utf-8");
+    console.log(`[AutoSkill] 📁 Mirrored to filesystem: ${filename}`);
+  } catch (err) {
+    console.error("[AutoSkill] Filesystem write failed:", err);
+  }
+}
+
+// ─── Count / Dedup Helpers ────────────────────────────────────────
+
+/**
+ * Get total auto-skill count across Supabase + filesystem.
+ * Used to enforce MAX_AUTO_SKILLS cap.
+ */
+async function getTotalAutoSkillCount(): Promise<number> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { count, error } = await sb
+        .from("skills")
+        .select("id", { count: "exact", head: true })
+        .eq("auto_generated", true);
+      if (!error && count !== null) return count;
+    } catch { /* fall through to filesystem */ }
+  }
+  return getFilesystemAutoSkillCount();
+}
+
+function getFilesystemAutoSkillCount(): number {
   if (!existsSync(AUTO_SKILLS_DIR)) return 0;
   try {
     return readdirSync(AUTO_SKILLS_DIR).filter((f) => f.endsWith(".md")).length;
@@ -267,9 +347,26 @@ function getAutoSkillCount(): number {
 }
 
 /**
- * Get names of all auto-generated skills (for dedup checks).
+ * Get names of all auto-generated skills for deduplication.
+ * Queries Supabase first, falls back to filesystem.
  */
-function getAutoSkillNames(): string[] {
+async function getAutoSkillNames(): Promise<string[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb
+        .from("skills")
+        .select("name")
+        .eq("auto_generated", true);
+      if (!error && data) {
+        return data.map((row: { name: string }) => row.name);
+      }
+    } catch { /* fall through */ }
+  }
+  return getFilesystemAutoSkillNames();
+}
+
+function getFilesystemAutoSkillNames(): string[] {
   if (!existsSync(AUTO_SKILLS_DIR)) return [];
   try {
     return readdirSync(AUTO_SKILLS_DIR)
@@ -288,22 +385,64 @@ function getAutoSkillNames(): string[] {
   }
 }
 
+// ─── /skills Command Data ─────────────────────────────────────────
+
 /**
  * List all auto-generated skills with their metadata.
- * Used by the /skills command.
+ * Used by the /skills command. Queries Supabase first, falls back to filesystem.
  */
-export function listAutoSkills(): string {
-  if (!existsSync(AUTO_SKILLS_DIR)) {
-    return "No auto-generated skills yet.";
+export async function listAutoSkills(): Promise<string> {
+  const sb = getSupabase();
+
+  if (sb) {
+    try {
+      const { data, error } = await sb
+        .from("skills")
+        .select("name, slug, description, source_agent, created_at, effectiveness")
+        .eq("auto_generated", true)
+        .order("created_at", { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        const lines: string[] = [
+          `📚 **Auto-Generated Skills** (${data.length}/${MAX_AUTO_SKILLS} cap)\n`,
+        ];
+
+        for (const row of data as Array<{
+          name: string;
+          slug: string;
+          description?: string;
+          source_agent?: string;
+          created_at?: string;
+          effectiveness?: number;
+        }>) {
+          const dateStr = row.created_at
+            ? new Date(row.created_at).toLocaleDateString("en-IN", { dateStyle: "medium" })
+            : "";
+          lines.push(`• **${row.name}** — ${row.description || ""}`);
+          lines.push(`  📅 ${dateStr} · 🤖 ${row.source_agent || "unknown"} · ⭐ ${row.effectiveness ?? 0} uses`);
+        }
+
+        return lines.join("\n");
+      }
+
+      if (!error && data && data.length === 0) {
+        return "No auto-generated skills yet.";
+      }
+    } catch { /* fall through to filesystem */ }
   }
+
+  // Filesystem fallback
+  return listAutoSkillsFromFilesystem();
+}
+
+function listAutoSkillsFromFilesystem(): string {
+  if (!existsSync(AUTO_SKILLS_DIR)) return "No auto-generated skills yet.";
 
   const files = readdirSync(AUTO_SKILLS_DIR).filter((f) => f.endsWith(".md"));
-  if (files.length === 0) {
-    return "No auto-generated skills yet.";
-  }
+  if (files.length === 0) return "No auto-generated skills yet.";
 
   const lines: string[] = [
-    `📚 **Auto-Generated Skills** (${files.length}/${MAX_AUTO_SKILLS} cap)\n`,
+    `📚 **Auto-Generated Skills** (${files.length}/${MAX_AUTO_SKILLS} cap — local only)\n`,
   ];
 
   for (const file of files) {

@@ -60,6 +60,9 @@ export function friendlyError(error: unknown, context: string): string {
     if (lower.includes("404") || (lower.includes("model") && lower.includes("not found")) || (lower.includes("model") && lower.includes("does not exist"))) {
         return "🤖 The selected AI model is unavailable or not found. Use /model to switch to a different one (e.g. /model flash-2.5).";
     }
+    if (lower.includes("400") || lower.includes("invalid_argument") || lower.includes("bad request") || lower.includes("invalidargument")) {
+        return "⚠️ The AI rejected the request (bad input or unsupported configuration). Try rephrasing your request or use /model to switch models.";
+    }
     if (lower.includes("timeout") || lower.includes("etimedout") || lower.includes("econnreset")) {
         return "⏱️ The request timed out. The server might be slow — please try again.";
     }
@@ -69,8 +72,13 @@ export function friendlyError(error: unknown, context: string): string {
     if (lower.includes("supabase") || lower.includes("postgres")) {
         return "🗄️ Database error. Memory features may be temporarily unavailable.";
     }
+    if (lower.includes("maximum iterations") || lower.includes("timed out")) {
+        return "⏳ The request took too long to process. Please try a simpler request or try again.";
+    }
 
     // Generic fallback — log internally but never expose raw error text to users
-    console.error(`[Channel] ${context} error:`, error);
+    const errType = error instanceof Error ? error.constructor.name : typeof error;
+    const errSnippet = msg.substring(0, 120);
+    console.error(`[Channel] ${context} error (${errType}): ${errSnippet}`, error);
     return `❌ Something went wrong during ${context}. The issue has been logged.`;
 }

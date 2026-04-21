@@ -225,6 +225,9 @@ registerTool({
         date_posted?: string;
         max_results?: number;
         experience_level?: string;
+        experience_min?: number;
+        experience_max?: number;
+        keywords?: string;
       },
     ),
 });

@@ -221,6 +221,15 @@ Your ONLY job is to find real, current job listings using the apify_job_search t
 | seek         | Seek.com.au                          |
 | aggregator   | Multi-source Job Listings Aggregator |
 
+## Experience Range Handling (CRITICAL):
+- "0 to 1 year" / "fresher" / "entry level" → use experience_min=0, experience_max=1, experience_level="entry_level" (for LinkedIn)
+- "1 to 3 years" → use experience_min=1, experience_max=3
+- "0 to 2 years" → use experience_min=0, experience_max=2, experience_level="entry_level"
+- "3+ years" → use experience_min=3, keywords="3+ years experience"
+- For Naukri: always pass both experience_min and experience_max when searching by experience
+- For LinkedIn: use experience_level="entry_level" for 0-2 yrs, "associate" for 2-5 yrs, "mid_senior_level" for 5+ yrs
+- Always also pass keywords with the experience range (e.g. keywords="fresher 0-1 years") for broader coverage
+
 ## Job Search Protocol:
 1. Parse the request: role(s), location, time filter, experience level, platforms, count
 2. For "all platforms": run apify_job_search per platform — linkedin, naukri, indeed, glassdoor, google
@@ -230,14 +239,14 @@ Your ONLY job is to find real, current job listings using the apify_job_search t
 ## Rules:
 - NEVER ask permission. Run the tool immediately.
 - NEVER say you can't find jobs. Run the tool and report results.
-- date_posted: "past24hours" for 24h requests
+- date_posted: "pastWeek" for experience-based searches (more results), "past24hours" for recency-only
 - location: "India" unless a city is specified
 - If one platform returns 0 results, try another automatically
 - Run multiple platform searches to reach the requested count (e.g. 20 jobs)
 - For non-technical roles search: Business Analyst, Product Analyst, Customer Success, Growth, Operations
 
 ## Output Format:
-💼 [Role] Jobs in [Location] — [Time Filter]
+💼 [Role] Jobs in [Location] — [Experience Range]
 
 **LinkedIn** (N results)
 1. **[Title]** — [Company] · [City]
@@ -255,6 +264,7 @@ Total: X listings across Y platforms`,
         temperature: 0.1,
         maxIterations: 15,
     },
+
 
     news: {
         name: "news",

@@ -28,7 +28,7 @@ function isGeminiModel(model: string): boolean {
 }
 
 /** HTTP status codes that warrant an automatic OpenRouter fallback. */
-const FALLBACK_STATUSES = new Set([404, 429, 503]);
+const FALLBACK_STATUSES = new Set([400, 404, 429, 503]);
 
 /**
  * Route an LLM call to the appropriate provider.

@@ -24,18 +24,29 @@ console.log(`Allowed Users: ${Array.from(ENV.ALLOWED_USER_IDS).join(", ")}`);
 // ─── Friendly Model Name Map ──────────────────────────────────────
 
 const FRIENDLY_NAMES: Record<string, string> = {
-  // Gemini
-  "gemini-3-flash-preview": "Gemini 3 Flash",
-  "gemini-3.1-pro-preview": "Gemini 3.1 Pro",
-  "gemini-3.1-flash-lite-preview": "Gemini 3.1 Flash Lite",
+  // Gemini 3.1
+  "gemini-3.1-pro-latest": "Gemini 3.1 Pro (Latest)",
+  "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
+  "gemini-3.1-flash-latest": "Gemini 3.1 Flash (Latest)",
+  "gemini-3.1-flash-lite-latest": "Gemini 3.1 Flash Lite (Latest)",
+  "gemini-3.1-flash-image-preview": "Gemini 3.1 Flash Image (Nano Banana 2)",
+  // Gemini 3
+  "gemini-3-flash-preview": "Gemini 3 Flash Preview",
+  "gemini-3-pro-image-preview": "Gemini 3 Pro Image (Nano Banana Pro)",
+  // Gemini 2.5
   "gemini-2.5-pro": "Gemini 2.5 Pro",
   "gemini-2.5-flash": "Gemini 2.5 Flash",
   "gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite",
-  "gemini-2.0-flash": "Gemini 2.0 Flash",
-  "gemini-2.0-flash-lite": "Gemini 2.0 Flash Lite",
+  // Gemini 2.0 (deprecated)
+  "gemini-2.0-flash": "Gemini 2.0 Flash (deprecated)",
+  "gemini-2.0-flash-lite": "Gemini 2.0 Flash Lite (deprecated)",
+  // Gemini 1.5
+  "gemini-1.5-pro-latest": "Gemini 1.5 Pro",
+  "gemini-1.5-flash-latest": "Gemini 1.5 Flash",
+  "gemini-1.5-flash-8b": "Gemini 1.5 Flash 8B",
+  // Legacy exact IDs (keep for backwards compat)
   "gemini-1.5-pro": "Gemini 1.5 Pro",
   "gemini-1.5-flash": "Gemini 1.5 Flash",
-  "gemini-1.5-flash-8b": "Gemini 1.5 Flash 8B",
   // Claude
   "anthropic/claude-3.7-sonnet": "Claude 3.7 Sonnet",
   "anthropic/claude-3.7-opus": "Claude 3.7 Opus",

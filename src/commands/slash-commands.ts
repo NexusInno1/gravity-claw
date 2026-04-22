@@ -73,27 +73,36 @@ export function clearModelOverride(chatId: string): void {
 // ─── Known Model Shortcuts ────────────────────────────────────────
 
 const KNOWN_MODELS: Record<string, string> = {
-  // ── Gemini 3.x ─────────────────────────────────────────────────────────
-  "flash": "gemini-3-flash-preview",
-  "flash-3": "gemini-3-flash-preview",
-  "flash-3.0": "gemini-3-flash-preview",
-  "pro-3.1": "gemini-3.1-pro-preview",
-  "flash-lite-3.1": "gemini-3.1-flash-lite-preview",
+  // ── Gemini 3.1 (confirmed valid on Gemini API — updated 2026-04-22) ───────
+  // -latest aliases are hot-swapped on every release (2-week notice before change)
+  "pro-3.1": "gemini-3.1-pro-latest",           // ✅ latest 3.1 Pro
+  "flash-3.1": "gemini-3.1-flash-latest",        // ✅ latest 3.1 Flash
+  "flash-lite-3.1": "gemini-3.1-flash-lite-latest", // ✅ latest 3.1 Flash Lite
+  // Pinned preview — stable ID that won't hot-swap
+  "pro-3.1-preview": "gemini-3.1-pro-preview",   // ✅ pinned preview
+  // Image generation models
+  "flash-image-3.1": "gemini-3.1-flash-image-preview", // ✅ Nano Banana 2
+  "pro-image-3": "gemini-3-pro-image-preview",   // ⚠️ Nano Banana Pro (shut down — may 400)
 
-  // ── Gemini 2.5 ─────────────────────────────────────────────────────────
+  // ── Gemini 3 Flash ────────────────────────────────────────────────────
+  "flash-3": "gemini-3-flash-preview",            // ✅ confirmed valid on Gemini API
+  "flash-3.0": "gemini-3-flash-preview",
+
+  // ── Gemini 2.5 (stable — "flash" default) ────────────────────────────
+  "flash": "gemini-2.5-flash",                    // default fast model
   "pro": "gemini-2.5-pro",
-  "pro-2.5": "gemini-2.5-pro",
   "flash-2.5": "gemini-2.5-flash",
+  "pro-2.5": "gemini-2.5-pro",
   "flash-lite": "gemini-2.5-flash-lite",
   "flash-lite-2.5": "gemini-2.5-flash-lite",
 
-  // ── Gemini 2.0 ─────────────────────────────────────────────────────────
-  "flash-2.0": "gemini-2.0-flash",
-  "flash-lite-2.0": "gemini-2.0-flash-lite",
+  // ── Gemini 2.0 (DEPRECATED — redirected to 2.5 equivalents) ──────────
+  "flash-2.0": "gemini-2.5-flash",               // 2.0 Flash deprecated → 2.5 Flash
+  "flash-lite-2.0": "gemini-2.5-flash-lite",     // 2.0 Flash-Lite deprecated → 2.5 Lite
 
-  // ── Gemini 1.5 (legacy) ────────────────────────────────────────────────
-  "pro-1.5": "gemini-1.5-pro",
-  "flash-1.5": "gemini-1.5-flash",
+  // ── Gemini 1.5 (legacy — -latest aliases confirmed valid) ───────────
+  "pro-1.5": "gemini-1.5-pro-latest",
+  "flash-1.5": "gemini-1.5-flash-latest",
   "flash-8b": "gemini-1.5-flash-8b",
 
   // ── OpenRouter Free Tier ───────────────────────────────────────────────
@@ -421,10 +430,12 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
 
     lines.push(
       "",
-      "**Gemini 3.x:**    `/model flash` | `/model pro-3.1` | `/model flash-lite-3.1`",
-      "**Gemini 2.5:**    `/model pro` | `/model flash-2.5` | `/model flash-lite`",
-      "**Gemini 2.0:**    `/model flash-2.0` | `/model flash-lite-2.0`",
-      "**Gemini 1.5:**    `/model pro-1.5` | `/model flash-1.5` | `/model flash-8b`",
+      "**Gemini 3.1:** `/model pro-3.1` | `/model flash-3.1` | `/model flash-lite-3.1` | `/model pro-3.1-preview`",
+      "**Gemini 3.1 Image:** `/model flash-image-3.1`",
+      "**Gemini 3 Flash:** `/model flash-3`",
+      "**Gemini 2.5 (default):** `/model flash` | `/model pro` | `/model flash-lite`",
+      "**Gemini 2.5 (explicit):** `/model flash-2.5` | `/model pro-2.5` | `/model flash-lite-2.5`",
+      "**Gemini 1.5 (legacy):** `/model pro-1.5` | `/model flash-1.5` | `/model flash-8b`",
       "",
       "**Free — Llama:**     `llama` | `llama-scout`",
       "**Free — DeepSeek:**  `deepseek` | `deepseek-r1` | `deepseek-r1-zero`",

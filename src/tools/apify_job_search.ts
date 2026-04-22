@@ -329,15 +329,22 @@ export async function executeApifyJobSearch(args: {
         console.log(`[ApifyJobSearch] Actor: ${actorId} | Role: "${args.role}" | Location: ${location} | Date: ${dateRaw}`);
 
         const encodedActor = encodeURIComponent(actorId);
+        // timeout=30: Apify waits up to 30s for the actor to finish before returning;
+        // AbortController gives us a hard 35s fetch deadline so we never hang longer.
         const runUrl =
             `https://api.apify.com/v2/acts/${encodedActor}/run-sync-get-dataset-items` +
-            `?token=${ENV.APIFY_API_TOKEN}&timeout=60&memory=256`;
+            `?token=${ENV.APIFY_API_TOKEN}&timeout=30&memory=256`;
+
+        const abortCtrl = new AbortController();
+        const abortTimer = setTimeout(() => abortCtrl.abort(), 35_000);
 
         const response = await fetch(runUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(actorInput),
+            signal: abortCtrl.signal,
         });
+        clearTimeout(abortTimer);
 
         if (!response.ok) {
             const errText = await response.text();
@@ -392,6 +399,15 @@ export async function executeApifyJobSearch(args: {
         return [...header, ...body, ...footer].join("\n");
 
     } catch (error) {
+        // AbortError = our 35s fetch deadline fired (Apify was too slow)
+        const isAbort = error instanceof Error && (error.name === "AbortError" || error.message.includes("abort"));
+        if (isAbort) {
+            console.warn(`[ApifyJobSearch] ${platform} timed out (>35s) — try a different platform.`);
+            return (
+                `Job search on ${platform} timed out (>35 seconds).\n` +
+                `Try a different platform: ${Object.keys(ACTORS).filter((p) => p !== platform).join(", ")}`
+            );
+        }
         console.error("[ApifyJobSearch] Error:", error);
         return `Job search failed: ${String(error)}`;
     }

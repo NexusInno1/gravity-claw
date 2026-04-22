@@ -49,15 +49,20 @@ export function getRuntimeConfig(): Readonly<RuntimeConfig> {
  * real API model name is "gemini-3-flash-preview".
  */
 const MODEL_CORRECTIONS: Record<string, string> = {
-    "gemini-3.0-flash": "gemini-3-flash-preview",
-    "gemini-3.0-flash-preview": "gemini-3-flash-preview",
-    "gemini-3-flash": "gemini-3-flash-preview",
-    "gemini-3.0-pro": "gemini-3.1-pro-preview",
-    "gemini-3.0-pro-preview": "gemini-3.1-pro-preview",
+    // Common typos for Gemini 3.1 Pro (real ID: gemini-3.1-pro-preview / -latest)
     "gemini-3.1-pro": "gemini-3.1-pro-preview",
-    "gemini-3.1-flash-lite": "gemini-3.1-flash-lite-preview",
+    "gemini-3-pro": "gemini-3.1-pro-preview",
+    "gemini-3.0-pro": "gemini-3.1-pro-preview",
+    // Common typos for Gemini 3.1 Flash (real IDs: -latest / -lite-latest)
+    "gemini-3.1-flash": "gemini-3.1-flash-latest",
+    "gemini-3.0-flash": "gemini-3-flash-preview",    // 3.0 -> 3 Flash Preview
+    "gemini-3.1-flash-lite": "gemini-3.1-flash-lite-latest",
+    // Gemini 2.5 preview aliases -> stable
     "gemini-2.5-flash-preview": "gemini-2.5-flash",
     "gemini-2.5-pro-preview": "gemini-2.5-pro",
+    // Gemini 2.0 is deprecated — redirect to 2.5 equivalents
+    "gemini-2.0-flash": "gemini-2.5-flash",
+    "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
 };
 
 function validateModel(model: string): string {

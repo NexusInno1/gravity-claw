@@ -107,7 +107,7 @@ import { recordTokenUsage } from "../commands/session-stats.js";
 import { getEffectiveModel } from "../commands/slash-commands.js";
 
 const MAX_ITERATIONS = 5;
-const MAX_LOOP_TIMEOUT_MS = 120_000; // 120 seconds hard wall-clock limit
+const MAX_LOOP_TIMEOUT_MS = 300_000; // 300 seconds (5 min) — job searches can take 2–5 min across platforms
 
 // ─── Soul (loaded once at startup) ───────────────────────────────
 //

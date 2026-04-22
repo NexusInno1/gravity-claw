@@ -414,6 +414,17 @@ export class TelegramChannel implements Channel {
         } catch {
           // Reactions may not be supported in all chat types — safe to ignore
         }
+
+        // For job searches specifically, send an immediate acknowledgement
+        // so the user doesn't assume the bot is frozen during a 60–90s scrape.
+        const isJobSearch = /\b(job|jobs|hiring|vacancies|position|openings?)\b/i.test(userMessage);
+        if (isJobSearch) {
+          try {
+            await ctx.reply("🔍 Searching for jobs across platforms... This may take 1–2 minutes.");
+          } catch {
+            // Non-critical — ignore if sendMessage fails here
+          }
+        }
       }
 
       // Start a typing indicator loop — pulses every 4s

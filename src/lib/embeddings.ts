@@ -32,7 +32,6 @@ const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embed
 const CUSTOM_EMBEDDING_URL = process.env.CUSTOM_EMBEDDING_URL || "";
 const CUSTOM_EMBEDDING_KEY = process.env.CUSTOM_EMBEDDING_API_KEY || "";
 
-console.log(`[Embeddings] Provider: ${PROVIDER}, dimensions: ${EMBEDDING_DIMENSIONS}`);
 
 // ─── Provider Implementations ─────────────────────────────────────
 

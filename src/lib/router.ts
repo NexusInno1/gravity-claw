@@ -23,12 +23,12 @@ import { ENV } from "../config.js";
 /**
  * Determine which provider should serve a given model.
  */
-function isGeminiModel(model: string): boolean {
+export function isGeminiModel(model: string): boolean {
     return model.startsWith("gemini-");
 }
 
 /** HTTP status codes that warrant an automatic OpenRouter fallback. */
-const FALLBACK_STATUSES = new Set([400, 404, 429, 503]);
+const FALLBACK_STATUSES: ReadonlySet<number> = new Set([400, 404, 429, 503]);
 
 /**
  * Route an LLM call to the appropriate provider.
@@ -79,6 +79,6 @@ export async function routedChat(params: LLMCallParams): Promise<LLMResponse> {
 /**
  * Get the provider name for a model (for display / logging purposes).
  */
-export function getProviderName(model: string): string {
+export function getProviderName(model: string): "Gemini" | "OpenRouter" {
     return isGeminiModel(model) ? "Gemini" : "OpenRouter";
 }

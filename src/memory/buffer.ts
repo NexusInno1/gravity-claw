@@ -13,6 +13,32 @@ import { ENV } from "../config.js";
 
 const MAX_BUFFER_SIZE = 20;
 
+// ─── Compaction Prompt Template ──────────────────────────────────
+
+/**
+ * Shared prompt used by both auto-compaction (maybeCompact) and manual
+ * compaction (compactChatHistory). Single source of truth for the
+ * structure of rolling summaries.
+ */
+const COMPACTION_PROMPT_TEMPLATE =
+  `Summarize this conversation into a structured memory block. Use these sections (skip empty ones):
+
+## Decisions Made
+- ...
+
+## Active Projects / Tasks
+- ...
+
+## Action Items & Commitments
+- ...
+
+## Key Context
+- ...
+
+Do NOT include greetings, small talk, or irrelevant chatter. Be concise but preserve all important details.
+
+`;
+
 /**
  * Per-chat compaction lock — prevents two concurrent saveMessage calls
  * from both triggering maybeCompact and double-deleting the same messages.
@@ -137,28 +163,7 @@ async function maybeCompact(chatId: string): Promise<void> {
     // Use LLM to create a structured rolling summary (provider-agnostic)
     const response = await routedChat({
       model: ENV.GEMINI_MODEL,
-      messages: [
-        {
-          role: "user",
-          content: `Summarize this conversation into a structured memory block. Use these sections (skip empty ones):
-
-## Decisions Made
-- ...
-
-## Active Projects / Tasks
-- ...
-
-## Action Items & Commitments
-- ...
-
-## Key Context
-- ...
-
-Do NOT include greetings, small talk, or irrelevant chatter. Be concise but preserve all important details.
-
-${transcript}`,
-        },
-      ],
+      messages: [{ role: "user", content: COMPACTION_PROMPT_TEMPLATE + transcript }],
       temperature: 0.3,
     });
 
@@ -289,28 +294,7 @@ export async function compactChatHistory(chatId: string): Promise<string> {
 
     const response = await routedChat({
       model: ENV.GEMINI_MODEL,
-      messages: [
-        {
-          role: "user",
-          content: `Summarize this conversation into a structured memory block. Use these sections (skip empty ones):
-
-## Decisions Made
-- ...
-
-## Active Projects / Tasks
-- ...
-
-## Action Items & Commitments
-- ...
-
-## Key Context
-- ...
-
-Do NOT include greetings, small talk, or irrelevant chatter. Be concise but preserve all important details.
-
-${contextPrefix}${transcript}`,
-        },
-      ],
+      messages: [{ role: "user", content: COMPACTION_PROMPT_TEMPLATE + contextPrefix + transcript }],
       temperature: 0.3,
     });
 

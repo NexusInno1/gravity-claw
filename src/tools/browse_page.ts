@@ -51,6 +51,45 @@ export const browsePageDefinition: Tool = {
 const MAX_CONTENT_LENGTH = 4000;
 const PAGE_TIMEOUT_MS = 30000;
 
+// ─── SSRF Guard ──────────────────────────────────────────────────
+
+/**
+ * Returns true if the URL targets a private / internal address.
+ * Blocks loopback, link-local, and RFC-1918 private ranges.
+ */
+function isPrivateUrl(rawUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  const hostname = parsed.hostname.toLowerCase().replace(/[\[\]]/g, "");
+
+  if (
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname.startsWith("127.")
+  ) {
+    return true;
+  }
+
+  if (hostname.startsWith("169.254.")) return true;
+
+  const ipv4 = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})/);
+  if (ipv4) {
+    const [, a, b] = ipv4.map(Number);
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+  }
+
+  if (hostname.endsWith(".local") || hostname.endsWith(".internal")) return true;
+
+  return false;
+}
+
 /**
  * Execute a headless browser page fetch using Puppeteer.
  */
@@ -68,6 +107,12 @@ export async function executeBrowsePage(args: {
   }
 
   const { url, wait_for = "body", extract_selector = "body" } = args;
+
+  // SSRF guard — block private/internal addresses before spawning Puppeteer
+  if (isPrivateUrl(url)) {
+    console.warn(`[BrowsePage] Blocked SSRF attempt: ${url}`);
+    return "Error: Access to private/internal network addresses is not allowed.";
+  }
 
   let browser;
   try {

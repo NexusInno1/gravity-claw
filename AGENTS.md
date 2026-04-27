@@ -77,7 +77,7 @@ User (Telegram / Webhook)
 - All webhook payloads are validated to prevent prompt injection.
 - Slash commands (`/model`, `/clear`, etc.) have concurrency guards.
 - `soul.md` source is validated against a known hash on startup.
-- Mission Control dashboard requires authentication (env-gated).
+- Sub-agents are hard-denied from using memory-mutating tools (`remember_fact`, `set_reminder`, `delegate`).
 
 ---
 
@@ -101,20 +101,35 @@ SUNDAY's sub-agents are defined in `src/agent/profiles.ts`. Each has a fixed rol
 
 All tools are registered in `src/tools/registry.ts` and available to the main agent by default:
 
-| Tool               | File                          | Purpose                                     |
-|--------------------|-------------------------------|---------------------------------------------|
-| `web_search`       | `src/tools/web_search.ts`     | Serper-powered Google search                |
-| `web_research`     | *(alias)*                     | Deep multi-source research variant          |
-| `browse_page`      | `src/tools/browse_page.ts`    | Full page content extraction                |
-| `read_url`         | `src/tools/read_url.ts`       | Raw URL content reader                      |
-| `apify_job_search` | `src/tools/apify_job_search.ts`| Multi-platform job listing scraper         |
-| `delegate`         | `src/tools/delegate.ts`       | Spawn a specialized sub-agent               |
-| `remember_fact`    | `src/tools/remember_fact.ts`  | Persist a fact to long-term memory          |
-| `set_reminder`     | `src/tools/set_reminder.ts`   | Schedule a reminder for the user            |
-| `get_current_time` | `src/tools/get_current_time.ts`| Return current IST timestamp               |
-| `serper_search`    | `src/tools/serper_search.ts`  | Lower-level Serper API wrapper              |
-| `mcp_filesystem_*` | MCP (mcp.json)                | Read skills/, soul.md, AGENTS.md files      |
-| `mcp_fetch_*`      | MCP (mcp.json)                | HTTP fetch via MCP protocol                 |
+| Tool               | File                           | Purpose                                              |
+|--------------------|--------------------------------|------------------------------------------------------|
+| `web_search`       | `src/tools/web_search.ts`      | Serper-powered Google search                         |
+| `web_research`     | *(alias)*                      | Deep multi-source research variant                   |
+| `browse_page`      | `src/tools/browse_page.ts`     | Full page content extraction (Puppeteer)             |
+| `read_url`         | `src/tools/read_url.ts`        | Raw URL content reader (fetch-based)                 |
+| `apify_job_search` | `src/tools/apify_job_search.ts`| Multi-platform job listing scraper                   |
+| `delegate`         | `src/tools/delegate.ts`        | Spawn a specialized sub-agent                        |
+| `remember_fact`    | `src/tools/remember_fact.ts`   | Persist a fact to long-term memory                   |
+| `set_reminder`     | `src/tools/set_reminder.ts`    | Schedule a reminder for the user                     |
+| `get_current_time` | `src/tools/get_current_time.ts`| Return current IST timestamp                         |
+
+> **Internal-use tools (not in LLM registry):**
+> - `serper_search` (`src/tools/serper_search.ts`) — lower-level Serper API wrapper imported directly by heartbeat jobs. Not exposed to the LLM as a callable tool.
+
+### MCP Tools (Optional Extension)
+
+Model Context Protocol (MCP) support is built-in via `src/mcp/mcp-manager.ts`, configured by `mcp.json` at the project root.
+
+**Current status:** `mcp.json` has `{"servers":[]}` — no MCP servers are active. Tools with the `mcp_<server>_<name>` naming convention will appear in the agent once servers are configured.
+
+To enable MCP tools, add server entries to `mcp.json`:
+```json
+{
+  "servers": [
+    { "name": "filesystem", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/data"] }
+  ]
+}
+```
 
 ---
 
@@ -444,7 +459,7 @@ This is a living specification tied to the SUNDAY codebase.
 - When sub-agent profiles change in `src/agent/profiles.ts`, **update Section 3** here immediately.
 - When new tools are added to `src/tools/`, **update the Tool Registry table** in Section 3.
 
-**Version:** 1.4 — Added autonomous skill creation, user profile system, MCP activation, and `/export`, `/profile`, `/skills` commands  
+**Version:** 1.5 — Security hardening (SSRF guards on read_url + browse_page), timeout message corrected to 300s, serper_search clarified as internal-only, MCP status documented, Mission Control reference removed, evening briefing parse_mode fixed, stale package scripts removed  
 **Adoption Mandate:** All agents operating within SUNDAY must internalize these instructions.
 
 ---

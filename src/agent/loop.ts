@@ -504,7 +504,7 @@ export async function runAgentLoop(
   };
 
   const timeoutPromise = new Promise<string>((_, reject) =>
-    setTimeout(() => reject(new Error("Agent loop timed out (120s limit)")), MAX_LOOP_TIMEOUT_MS),
+    setTimeout(() => reject(new Error("Agent loop timed out (300s limit)")), MAX_LOOP_TIMEOUT_MS),
   );
   return Promise.race([run(), timeoutPromise]);
 }
@@ -554,7 +554,7 @@ export async function runAgentLoopWithImage(
   };
 
   const timeoutPromise = new Promise<string>((_, reject) =>
-    setTimeout(() => reject(new Error("Agent loop timed out (120s limit)")), MAX_LOOP_TIMEOUT_MS),
+    setTimeout(() => reject(new Error("Agent loop timed out (300s limit)")), MAX_LOOP_TIMEOUT_MS),
   );
   return Promise.race([run(), timeoutPromise]);
 }

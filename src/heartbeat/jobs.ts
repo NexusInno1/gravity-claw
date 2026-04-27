@@ -134,17 +134,17 @@ async function eveningBriefing(bot: Bot, chatId: string): Promise<void> {
   const morningGoal = getCoreMemory("last_daily_goal");
 
   // Build the message from a fixed template
-  let message = "🌙 *Evening check-in.*\n\n";
+  let message = "🌙 Evening check-in.\n\n";
 
   if (morningGoal) {
-    message += `This morning you set out to: _${morningGoal}_\n\n`;
+    message += `This morning you set out to: "${morningGoal}"\n\n`;
     message += "Did you hit it? What's the one thing you want to tackle first tomorrow?";
   } else {
     message += "How did today go? What's the one priority you want to tackle first thing tomorrow?";
   }
 
   try {
-    await bot.api.sendMessage(chatId, message, { parse_mode: "Markdown" });
+    await bot.api.sendMessage(chatId, message);
     await saveMessage(chatId, "model", message);
     console.log("[Heartbeat] Evening briefing sent.");
   } catch (err) {

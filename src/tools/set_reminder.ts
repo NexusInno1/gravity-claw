@@ -194,19 +194,34 @@ function scheduleTimer(
     const sb = getSupabase();
 
     if (isRecurring && cronExpression) {
-      // Reschedule: compute next fire time and update DB
+      // ── Recurring: update next fire_at in DB FIRST, then reschedule ──
+      // Updating before re-scheduling means if the bot crashes during send,
+      // restoreReminders() will load the NEXT fire time, not the already-fired one.
       const nextFire = nextCronFire(cronExpression);
       console.log(`[Reminder] Recurring "${message}" — next fire at ${nextFire.toISOString()}`);
 
       if (sb) {
-        await sb.from("reminders").update({ fire_at: nextFire.toISOString() }).eq("id", id);
+        const { error } = await sb
+          .from("reminders")
+          .update({ fire_at: nextFire.toISOString() })
+          .eq("id", id);
+        if (error) console.error("[Reminder] Failed to update recurring fire_at:", error.message);
       }
       scheduleTimer(id, chatId, message, nextFire, true, cronExpression, scheduleDesc);
     } else {
-      // One-off: mark as fired
+      // ── One-off: mark fired BEFORE sending Telegram message ──
+      // If the bot crashes between the DB write and the send, the reminder
+      // will NOT be re-delivered on next restart. A missed delivery is
+      // preferable to a duplicate (which is confusing and annoying).
       if (sb) {
-        const { error } = await sb.from("reminders").update({ fired: true }).eq("id", id);
-        if (error) console.error("[Reminder] Failed to mark fired in DB:", error.message);
+        const { error } = await sb
+          .from("reminders")
+          .update({ fired: true, fired_at: new Date().toISOString() })
+          .eq("id", id);
+        if (error) {
+          // Log but continue — still send even if DB write failed
+          console.error("[Reminder] Failed to mark fired in DB:", error.message);
+        }
       }
     }
 

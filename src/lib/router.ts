@@ -27,8 +27,12 @@ export function isGeminiModel(model: string): boolean {
     return model.startsWith("gemini-");
 }
 
-/** HTTP status codes that warrant an automatic OpenRouter fallback. */
-const FALLBACK_STATUSES: ReadonlySet<number> = new Set([400, 404, 429, 503]);
+/** HTTP status codes that warrant an automatic OpenRouter fallback.
+ *  400 (bad request) is intentionally excluded — it indicates a real bug
+ *  in our payload (invalid model config, malformed body, etc.) and should
+ *  surface immediately rather than silently retry on a different provider.
+ */
+const FALLBACK_STATUSES: ReadonlySet<number> = new Set([404, 429, 503]);
 
 /**
  * Route an LLM call to the appropriate provider.

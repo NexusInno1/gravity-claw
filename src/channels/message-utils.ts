@@ -45,6 +45,11 @@ export function chunkMessage(text: string, maxLength: number): string[] {
  * Never leaks stack traces or internal paths.
  */
 export function friendlyError(error: unknown, context: string): string {
+    // Guard: null/undefined passed directly — treat as unknown error
+    if (error === null || error === undefined) {
+        console.error(`[Channel] ❌ ${context} — null/undefined error received`);
+        return `❌ Something went wrong during ${context}. The issue has been logged.`;
+    }
     const msg = error instanceof Error ? error.message : String(error);
     const lower = msg.toLowerCase();
 

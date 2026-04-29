@@ -58,7 +58,7 @@ export const FRIENDLY_NAMES: Record<string, string> = {
   "qwen/qwen3-coder-480b-a35b:free": "Qwen 3 Coder (free)",
   // Mistral
   "mistralai/mistral-small-3.1-24b-instruct:free": "Mistral Small 3.1 (free)",
-  "mistralai/mistral-7b-instruct:free": "Mistral 7B (free)",
+  // mistral-7b-instruct:free retired — alias now redirects to mistral-small-3.1
   "mistralai/mistral-large": "Mistral Large",
   // Other
   "microsoft/phi-4-reasoning-plus:free": "Phi-4 Reasoning+ (free)",

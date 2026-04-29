@@ -73,16 +73,15 @@ export function clearModelOverride(chatId: string): void {
 // ─── Known Model Shortcuts ────────────────────────────────────────
 
 const KNOWN_MODELS: Record<string, string> = {
-  // ── Gemini 3.1 (confirmed valid on Gemini API — updated 2026-04-22) ───────
-  // -latest aliases are hot-swapped on every release (2-week notice before change)
-  "pro-3.1": "gemini-3.1-pro-latest",           // ✅ latest 3.1 Pro
-  "flash-3.1": "gemini-3.1-flash-latest",        // ✅ latest 3.1 Flash
-  "flash-lite-3.1": "gemini-3.1-flash-lite-latest", // ✅ latest 3.1 Flash Lite
-  // Pinned preview — stable ID that won't hot-swap
-  "pro-3.1-preview": "gemini-3.1-pro-preview",   // ✅ pinned preview
-  // Image generation models
-  "flash-image-3.1": "gemini-3.1-flash-image-preview", // ✅ Nano Banana 2
-  "pro-image-3": "gemini-3-pro-image-preview",   // ⚠️ Nano Banana Pro (shut down — may 400)
+  // ── Gemini 3.1 (❌ hard 404 on Gemini API — model IDs do not exist) ─────────
+  // Verified 2026-04-29: all gemini-3.1-* IDs return HTTP 404 on every API version.
+  // Aliases redirect to nearest working model so users get a response, not an error.
+  "pro-3.1": "gemini-2.5-pro",               // ❌ 404 → redirect to 2.5 Pro
+  "flash-3.1": "gemini-3-flash-preview",     // ❌ 404 → redirect to 3 Flash
+  "flash-lite-3.1": "gemini-2.5-flash-lite", // ❌ 404 → redirect to 2.5 Lite
+  "pro-3.1-preview": "gemini-2.5-pro",       // ❌ 404 → redirect to 2.5 Pro
+  "flash-image-3.1": "gemini-3-flash-preview", // ❌ 404 → redirect to 3 Flash
+  "pro-image-3": "gemini-3-flash-preview",   // ❌ shut down → redirect to 3 Flash
 
   // ── Gemini 3 Flash ────────────────────────────────────────────────────
   "flash-3": "gemini-3-flash-preview",            // ✅ confirmed valid on Gemini API
@@ -100,36 +99,38 @@ const KNOWN_MODELS: Record<string, string> = {
   "flash-2.0": "gemini-2.5-flash",               // 2.0 Flash deprecated → 2.5 Flash
   "flash-lite-2.0": "gemini-2.5-flash-lite",     // 2.0 Flash-Lite deprecated → 2.5 Lite
 
-  // ── Gemini 1.5 (legacy — -latest aliases confirmed valid) ───────────
-  "pro-1.5": "gemini-1.5-pro-latest",
-  "flash-1.5": "gemini-1.5-flash-latest",
+  // ── Gemini 1.5 (legacy) ────────────────────────────────────────────────────
+  // ❌ -latest suffix returns HTTP 404 — Gemini API removed that alias.
+  // Use bare model ID instead (e.g. gemini-1.5-pro, not gemini-1.5-pro-latest).
+  "pro-1.5": "gemini-1.5-pro",
+  "flash-1.5": "gemini-1.5-flash",
   "flash-8b": "gemini-1.5-flash-8b",
 
-  // ── OpenRouter Free Tier ───────────────────────────────────────────────
-  // Llama 4
-  "llama": "meta-llama/llama-4-maverick:free",
-  "llama-maverick": "meta-llama/llama-4-maverick:free",
-  "llama-scout": "meta-llama/llama-4-scout:free",
-  // DeepSeek
-  "deepseek": "deepseek/deepseek-chat-v3-0324:free",
-  "deepseek-v3": "deepseek/deepseek-chat-v3-0324:free",
-  "deepseek-r1": "deepseek/deepseek-r1-0528:free",
-  "deepseek-r1-zero": "deepseek/deepseek-r1-zero:free",
-  // Qwen
-  "qwen": "qwen/qwen3-235b-a22b:free",
-  "qwen3": "qwen/qwen3-235b-a22b:free",
-  "qwen-coder": "qwen/qwen3-coder-480b-a35b:free",
-  // Mistral free
-  "mistral": "mistralai/mistral-small-3.1-24b-instruct:free",
-  "mistral-small": "mistralai/mistral-small-3.1-24b-instruct:free",
-  "mistral-7b": "mistralai/mistral-7b-instruct:free",
-  // Microsoft / NVIDIA
-  "phi": "microsoft/phi-4-reasoning-plus:free",
-  "nemotron": "nvidia/nemotron-3-super:free",
-  // Misc free
+  // ── OpenRouter Free Tier ────────────────────────────────────────────────────
+  // Live-verified 2026-04-29. ALL former free models are now dead (HTTP 404).
+  // Only confirmed working free model: openai/gpt-oss-20b:free
+  //
+  // ✅ WORKING
   "gpt-oss": "openai/gpt-oss-20b:free",
-  "step-flash": "stepfun/step-3.5-flash:free",
-  "trinity": "arcee-ai/trinity-mini:free",
+  //
+  // ❌ DEAD — redirected to gpt-oss-20b:free (the only live free fallback)
+  "llama": "openai/gpt-oss-20b:free",         // was llama-4-maverick:free (404)
+  "llama-maverick": "openai/gpt-oss-20b:free",
+  "llama-scout": "openai/gpt-oss-20b:free",   // was llama-4-scout:free (404)
+  "deepseek": "openai/gpt-oss-20b:free",      // was deepseek-chat-v3:free (404)
+  "deepseek-v3": "openai/gpt-oss-20b:free",
+  "deepseek-r1": "openai/gpt-oss-20b:free",   // was deepseek-r1-0528:free (404)
+  "deepseek-r1-zero": "openai/gpt-oss-20b:free",
+  "qwen": "openai/gpt-oss-20b:free",          // was qwen3-235b:free (404)
+  "qwen3": "openai/gpt-oss-20b:free",
+  "qwen-coder": "openai/gpt-oss-20b:free",    // was qwen3-coder:free (400 invalid)
+  "mistral": "openai/gpt-oss-20b:free",       // was mistral-small-3.1:free (404)
+  "mistral-small": "openai/gpt-oss-20b:free",
+  "mistral-7b": "openai/gpt-oss-20b:free",
+  "phi": "openai/gpt-oss-20b:free",           // was phi-4-reasoning:free (404)
+  "nemotron": "openai/gpt-oss-20b:free",      // was nemotron-3-super:free (400 invalid)
+  "step-flash": "openai/gpt-oss-20b:free",    // was step-3.5-flash:free (404)
+  "trinity": "openai/gpt-oss-20b:free",       // was trinity-mini:free (404)
 
   // ── OpenRouter Paid — Claude ───────────────────────────────────────────
   "claude": "anthropic/claude-3.7-sonnet",
@@ -430,18 +431,14 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
 
     lines.push(
       "",
-      "**Gemini 3.1:** `/model pro-3.1` | `/model flash-3.1` | `/model flash-lite-3.1` | `/model pro-3.1-preview`",
-      "**Gemini 3.1 Image:** `/model flash-image-3.1`",
-      "**Gemini 3 Flash:** `/model flash-3`",
-      "**Gemini 2.5 (default):** `/model flash` | `/model pro` | `/model flash-lite`",
+      "**Gemini 3.1 (❌ hard 404 — redirects to nearest working):** `/model pro-3.1` | `/model flash-3.1` | `/model flash-lite-3.1`",
+      "**Gemini 3 Flash (✅ verified):** `/model flash-3`",
+      "**Gemini 2.5 (✅ default):** `/model flash` | `/model pro` | `/model flash-lite`",
       "**Gemini 2.5 (explicit):** `/model flash-2.5` | `/model pro-2.5` | `/model flash-lite-2.5`",
       "**Gemini 1.5 (legacy):** `/model pro-1.5` | `/model flash-1.5` | `/model flash-8b`",
       "",
-      "**Free — Llama:**     `llama` | `llama-scout`",
-      "**Free — DeepSeek:**  `deepseek` | `deepseek-r1` | `deepseek-r1-zero`",
-      "**Free — Qwen:**      `qwen` | `qwen-coder`",
-      "**Free — Mistral:**   `mistral` | `mistral-7b`",
-      "**Free — Other:**     `phi` | `nemotron` | `gpt-oss` | `step-flash` | `trinity`",
+      "**Free — Only working free OR model (✅):** `gpt-oss` (openai/gpt-oss-20b:free)",
+      "**Free — Dead aliases → redirect to gpt-oss:** `llama` | `deepseek` | `qwen` | `mistral` | `phi` | `nemotron` | `trinity`",
       "",
       "**Paid — Claude:**    `claude` | `claude-opus` | `claude-haiku` | `claude-3.5`",
       "**Paid — GPT:**       `gpt` | `gpt-4o-mini` | `gpt-5` | `gpt-5-mini` | `o3` | `o4-mini`",

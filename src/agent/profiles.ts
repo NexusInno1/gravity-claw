@@ -262,7 +262,7 @@ Total: X listings across Y platforms`,
             "web_search",
         ],
         temperature: 0.1,
-        maxIterations: 15,
+        maxIterations: 10, // Reduced from 15 — 10 covers 3 platforms + dedup + format
     },
 
 

@@ -38,7 +38,7 @@ vi.mock("../lib/config-sync.js", () => ({
 const mockRoutedChat = vi.fn();
 vi.mock("../lib/router.js", () => ({
     routedChat: (...args: unknown[]) => mockRoutedChat(...args),
-    getProviderName: (model: string) => model.startsWith("gemini-") ? "Gemini" : "OpenRouter",
+    getProviderName: (model: string) => model.startsWith("gemini-") ? "Gemini" : model.startsWith("groq/") ? "Groq" : "Gemini",
 }));
 
 // Mock slash-commands to return default model

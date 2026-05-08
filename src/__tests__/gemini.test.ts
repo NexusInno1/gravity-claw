@@ -34,8 +34,8 @@ vi.mock("../config.js", () => ({
     GEMINI_API_KEYS: ["key-A", "key-B", "key-C"],
     TELEGRAM_BOT_TOKEN: "test",
     ALLOWED_USER_IDS: [12345],
-    OPENROUTER_API_KEY: "",
-    OPENROUTER_MODEL: "",
+    GROQ_API_KEY: "",
+    GROQ_MODEL: "",
   },
 }));
 

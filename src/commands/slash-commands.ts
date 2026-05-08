@@ -106,79 +106,28 @@ const KNOWN_MODELS: Record<string, string> = {
   "flash-1.5": "gemini-1.5-flash",
   "flash-8b": "gemini-1.5-flash-8b",
 
-  // ── OpenRouter Free Tier ────────────────────────────────────────────────────
-  // Live-verified 2026-04-29. ALL former free models are now dead (HTTP 404).
-  // Only confirmed working free model: openai/gpt-oss-20b:free
-  //
-  // ✅ WORKING
-  "gpt-oss": "openai/gpt-oss-20b:free",
-  //
-  // ❌ DEAD — redirected to gpt-oss-20b:free (the only live free fallback)
-  "llama": "openai/gpt-oss-20b:free",         // was llama-4-maverick:free (404)
-  "llama-maverick": "openai/gpt-oss-20b:free",
-  "llama-scout": "openai/gpt-oss-20b:free",   // was llama-4-scout:free (404)
-  "deepseek": "openai/gpt-oss-20b:free",      // was deepseek-chat-v3:free (404)
-  "deepseek-v3": "openai/gpt-oss-20b:free",
-  "deepseek-r1": "openai/gpt-oss-20b:free",   // was deepseek-r1-0528:free (404)
-  "deepseek-r1-zero": "openai/gpt-oss-20b:free",
-  "qwen": "openai/gpt-oss-20b:free",          // was qwen3-235b:free (404)
-  "qwen3": "openai/gpt-oss-20b:free",
-  "qwen-coder": "openai/gpt-oss-20b:free",    // was qwen3-coder:free (400 invalid)
-  "mistral": "openai/gpt-oss-20b:free",       // was mistral-small-3.1:free (404)
-  "mistral-small": "openai/gpt-oss-20b:free",
-  "mistral-7b": "openai/gpt-oss-20b:free",
-  "phi": "openai/gpt-oss-20b:free",           // was phi-4-reasoning:free (404)
-  "nemotron": "openai/gpt-oss-20b:free",      // was nemotron-3-super:free (400 invalid)
-  "step-flash": "openai/gpt-oss-20b:free",    // was step-3.5-flash:free (404)
-  "trinity": "openai/gpt-oss-20b:free",       // was trinity-mini:free (404)
-
-  // ── OpenRouter Paid — Claude ───────────────────────────────────────────
-  // Live-verified 2026-05-08. Claude 3.x retired / retiring.
-  // claude-3.7-sonnet: retiring 2026-05-11 on OpenRouter
-  // claude-3.7-opus: never existed on OpenRouter
-  // Current production Claude 4.x lineup:
-  "claude": "anthropic/claude-sonnet-4.6",         // ✅ current daily driver
-  "claude-sonnet": "anthropic/claude-sonnet-4.6",   // ✅ Claude Sonnet 4.6
-  "claude-opus": "anthropic/claude-opus-4.7",       // ✅ flagship (replaced 3.7-opus)
-  "claude-haiku": "anthropic/claude-haiku-4.5",     // ✅ fastest / cheapest
-  "claude-3.5": "anthropic/claude-sonnet-4.6",      // legacy alias → 4.6
-
-  // ── OpenRouter Paid — OpenAI / GPT ────────────────────────────────────
-  "gpt": "openai/gpt-4o",
-  "gpt-4o": "openai/gpt-4o",
-  "gpt-4o-mini": "openai/gpt-4o-mini",
-  "gpt-5": "openai/gpt-5.4",
-  "gpt-5-mini": "openai/gpt-5.4-mini",
-  "o3": "openai/o3",
-  "o4-mini": "openai/o4-mini",
-
-  // ── OpenRouter Paid — Llama paid ──────────────────────────────────────
-  "llama-paid": "meta-llama/llama-4-maverick",
-  "llama-3.3": "meta-llama/llama-3.3-70b-instruct",
-
-  // ── OpenRouter Paid — Mistral ──────────────────────────────────────────
-  "mistral-large": "mistralai/mistral-large",
-
-  // ── OpenRouter Paid — Qwen ────────────────────────────────────────────
-  "qwq": "qwen/qwq-32b",
-  "qwen-paid": "qwen/qwen3-235b-a22b",
-
-  // ── OpenRouter Paid — DeepSeek ────────────────────────────────────────
-  "deepseek-paid": "deepseek/deepseek-chat-v3-0324",
-  "deepseek-r1-paid": "deepseek/deepseek-r1",
-
-  // ── Google models via OpenRouter ──────────────────────────────────────
-  "gemini-or": "google/gemini-3-flash-preview",
-  "gemini-pro-or": "google/gemini-2.5-pro",
-
   // ── Groq — Free tier (6,000 RPM, ultra-fast LPU inference) ───────────
-  // These are routed via the Groq provider (GROQ_API_KEY required).
-  // Use /model groq or /model llama-groq to switch to Groq for the session.
-  "groq": "groq/llama-3.3-70b-versatile",          // ✅ best all-round
-  "llama-groq": "groq/llama-3.3-70b-versatile",    // ✅ alias
-  "llama-8b": "groq/llama3-8b-8192",               // ✅ fastest, simple tasks
-  "mixtral-groq": "groq/mixtral-8x7b-32768",       // ✅ good for long context
-  "gemma-groq": "groq/gemma2-9b-it",               // ✅ Google Gemma 2 via Groq
+  // All routed via the Groq provider (GROQ_API_KEY required).
+  // Llama 3.3 70B is the recommended default — best capability/speed balance.
+  "groq": "groq/llama-3.3-70b-versatile",          // ✅ best all-round (default fallback)
+  "llama": "groq/llama-3.3-70b-versatile",          // ✅ natural alias
+  "llama-groq": "groq/llama-3.3-70b-versatile",
+  "llama-maverick": "groq/llama-3.3-70b-versatile", // redirected from dead OR free model
+  "llama-scout": "groq/llama-3.3-70b-versatile",    // redirected from dead OR free model
+  "llama-3.3": "groq/llama-3.3-70b-versatile",
+  "llama-8b": "groq/llama3-8b-8192",                // ✅ fastest, good for simple tasks
+  "mixtral": "groq/mixtral-8x7b-32768",             // ✅ best for long context (32k)
+  "mixtral-groq": "groq/mixtral-8x7b-32768",
+  "gemma": "groq/gemma2-9b-it",                     // ✅ Google Gemma 2 via Groq
+  "gemma-groq": "groq/gemma2-9b-it",
+  // Former OpenRouter free-tier aliases — now served by Groq Llama 3.3
+  "deepseek": "groq/llama-3.3-70b-versatile",
+  "deepseek-v3": "groq/llama-3.3-70b-versatile",
+  "deepseek-r1": "groq/llama-3.3-70b-versatile",
+  "qwen": "groq/llama-3.3-70b-versatile",
+  "qwen3": "groq/llama-3.3-70b-versatile",
+  "mistral": "groq/mixtral-8x7b-32768",             // Mixtral is the closest Groq equivalent
+  "mistral-small": "groq/mixtral-8x7b-32768",
 };
 
 function resolveModel(raw: string): string | null {

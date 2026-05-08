@@ -80,18 +80,34 @@ if (!apifyApiToken) {
   );
 }
 
-// OpenRouter (optional — used as fallback when Gemini keys are exhausted)
+// OpenRouter (optional — secondary fallback when Gemini keys are exhausted)
 const openrouterApiKey = process.env.OPENROUTER_API_KEY || "";
 const openrouterModel =
   process.env.OPENROUTER_MODEL ||
   "mistralai/mistral-small-3.1-24b-instruct:free";
 if (!openrouterApiKey) {
   console.warn(
-    "[Config] OPENROUTER_API_KEY missing — no LLM fallback available.",
+    "[Config] OPENROUTER_API_KEY missing — OpenRouter fallback unavailable.",
   );
 } else {
   console.log(
     `[Config] OpenRouter fallback enabled (model: ${openrouterModel}).`,
+  );
+}
+
+// Groq (optional — primary fallback when Gemini keys are exhausted)
+// Free tier: 6,000 RPM — much more reliable than OpenRouter free models.
+// Get a key at: https://console.groq.com
+const groqApiKey = process.env.GROQ_API_KEY || "";
+const groqModel =
+  process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+if (!groqApiKey) {
+  console.warn(
+    "[Config] GROQ_API_KEY missing — Groq fallback unavailable. Set it for a reliable free fallback.",
+  );
+} else {
+  console.log(
+    `[Config] Groq fallback enabled (model: ${groqModel}).`,
   );
 }
 
@@ -109,6 +125,8 @@ export const ENV = {
   APIFY_API_TOKEN: apifyApiToken,
   OPENROUTER_API_KEY: openrouterApiKey,
   OPENROUTER_MODEL: openrouterModel,
+  GROQ_API_KEY: groqApiKey,
+  GROQ_MODEL: groqModel,
   WEBHOOK_PORT: parseInt(process.env.WEBHOOK_PORT || "3100", 10),
   WEBHOOK_SECRET: process.env.WEBHOOK_SECRET || "",
   SHOW_MODEL_FOOTER: (process.env.SHOW_MODEL_FOOTER ?? "true") !== "false",

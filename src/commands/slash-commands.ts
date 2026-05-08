@@ -170,6 +170,15 @@ const KNOWN_MODELS: Record<string, string> = {
   // ── Google models via OpenRouter ──────────────────────────────────────
   "gemini-or": "google/gemini-3-flash-preview",
   "gemini-pro-or": "google/gemini-2.5-pro",
+
+  // ── Groq — Free tier (6,000 RPM, ultra-fast LPU inference) ───────────
+  // These are routed via the Groq provider (GROQ_API_KEY required).
+  // Use /model groq or /model llama-groq to switch to Groq for the session.
+  "groq": "groq/llama-3.3-70b-versatile",          // ✅ best all-round
+  "llama-groq": "groq/llama-3.3-70b-versatile",    // ✅ alias
+  "llama-8b": "groq/llama3-8b-8192",               // ✅ fastest, simple tasks
+  "mixtral-groq": "groq/mixtral-8x7b-32768",       // ✅ good for long context
+  "gemma-groq": "groq/gemma2-9b-it",               // ✅ Google Gemma 2 via Groq
 };
 
 function resolveModel(raw: string): string | null {

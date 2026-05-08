@@ -1,14 +1,18 @@
 /**
  * LLM Router — Smart Provider Dispatcher
  *
- * Routes LLM calls to the correct provider (Gemini or OpenRouter)
+ * Routes LLM calls to the correct provider (Gemini or OpenRouter/Groq)
  * based on the model name. Handles automatic fallback when Gemini
  * keys are exhausted.
  *
  * Model routing logic:
  *   - Names starting with "gemini-" → Gemini provider
- *   - Everything else → OpenRouter provider
- *   - Gemini 429 fallback → OpenRouter (if configured)
+ *   - Everything else → OpenRouter provider (direct, not fallback)
+ *   - Gemini 429/503/404 fallback chain: Groq → OpenRouter
+ *
+ * Fallback priority:
+ *   1. Groq  (primary fallback — 6,000 RPM free, fast, reliable)
+ *   2. OpenRouter (secondary fallback — if Groq not configured)
  *
  * Usage:
  *   import { routedChat } from "../lib/router.js";
@@ -17,6 +21,7 @@
 
 import type { LLMCallParams, LLMResponse } from "./llm.js";
 import { geminiProvider } from "./gemini.js";
+import { groqProvider } from "./groq.js";
 import { openRouterProvider } from "./openrouter.js";
 import { ENV } from "../config.js";
 
@@ -27,7 +32,11 @@ export function isGeminiModel(model: string): boolean {
     return model.startsWith("gemini-");
 }
 
-/** HTTP status codes that warrant an automatic OpenRouter fallback.
+export function isGroqModel(model: string): boolean {
+    return model.startsWith("groq/");
+}
+
+/** HTTP status codes that warrant an automatic fallback.
  *  400 (bad request) is intentionally excluded — it indicates a real bug
  *  in our payload (invalid model config, malformed body, etc.) and should
  *  surface immediately rather than silently retry on a different provider.
@@ -38,13 +47,22 @@ const FALLBACK_STATUSES: ReadonlySet<number> = new Set([404, 429, 503]);
  * Route an LLM call to the appropriate provider.
  *
  * - Gemini models go to the Gemini provider.
- * - Non-Gemini models go to OpenRouter directly (first-class, not fallback).
- * - If Gemini fails with 404 (model not found), 429 (quota), or 503 (service unavailable),
- *   automatically retries with OpenRouter using the configured fallback model.
- * - All other errors (400, 401, 500, etc.) propagate immediately so real
- *   bugs are not silently hidden behind a fallback.
+ * - groq/ models go to the Groq provider directly.
+ * - Everything else goes to OpenRouter directly (first-class, not fallback).
+ * - If Gemini fails with 404/429/503, fallback chain activates:
+ *     1. Groq  (if GROQ_API_KEY is set) — 6,000 RPM free tier
+ *     2. OpenRouter (if OPENROUTER_API_KEY is set) — secondary safety net
+ * - All other errors (400, 401, 500, etc.) propagate immediately.
  */
 export async function routedChat(params: LLMCallParams): Promise<LLMResponse> {
+    // ── Groq model → Groq provider directly ─────────────────────────
+    if (isGroqModel(params.model)) {
+        // Strip the "groq/" prefix — Groq API uses bare model IDs
+        const groqModelId = params.model.replace(/^groq\//, "");
+        console.log(`[Router] ${params.model} → Groq (native)`);
+        return groqProvider.chat({ ...params, model: groqModelId });
+    }
+
     // ── Non-Gemini model → OpenRouter directly ──────────────────────
     if (!isGeminiModel(params.model)) {
         console.log(`[Router] ${params.model} → OpenRouter (native)`);
@@ -58,31 +76,52 @@ export async function routedChat(params: LLMCallParams): Promise<LLMResponse> {
         const status = (error as { status?: number }).status;
 
         // Only fall back on quota/service errors — propagate everything else
-        if (!ENV.OPENROUTER_API_KEY || !FALLBACK_STATUSES.has(status ?? 0)) {
+        if (!FALLBACK_STATUSES.has(status ?? 0)) {
             throw error;
         }
 
         const reason = status === 404 ? "model not found" : `HTTP ${status}`;
-        console.log(
-            `[Router] Gemini failed (${reason}) — falling back to OpenRouter (${ENV.OPENROUTER_MODEL})...`,
-        );
 
-        try {
-            return await openRouterProvider.chat({
-                ...params,
-                model: ENV.OPENROUTER_MODEL,
-            });
-        } catch (fallbackError) {
-            console.error("[Router] OpenRouter fallback also failed:", fallbackError);
-            // Throw the original Gemini error, not the fallback error
-            throw error;
+        // ── Fallback 1: Groq (primary — 6,000 RPM free) ─────────────
+        if (ENV.GROQ_API_KEY) {
+            console.log(
+                `[Router] Gemini failed (${reason}) — falling back to Groq (${ENV.GROQ_MODEL})...`,
+            );
+            try {
+                return await groqProvider.chat({
+                    ...params,
+                    model: ENV.GROQ_MODEL,
+                });
+            } catch (groqError) {
+                console.error("[Router] Groq fallback also failed:", groqError);
+                // Fall through to OpenRouter
+            }
         }
+
+        // ── Fallback 2: OpenRouter (secondary safety net) ────────────
+        if (ENV.OPENROUTER_API_KEY) {
+            console.log(
+                `[Router] Falling back to OpenRouter (${ENV.OPENROUTER_MODEL})...`,
+            );
+            try {
+                return await openRouterProvider.chat({
+                    ...params,
+                    model: ENV.OPENROUTER_MODEL,
+                });
+            } catch (fallbackError) {
+                console.error("[Router] OpenRouter fallback also failed:", fallbackError);
+            }
+        }
+
+        // Both fallbacks failed (or not configured) — throw original error
+        throw error;
     }
 }
 
 /**
  * Get the provider name for a model (for display / logging purposes).
  */
-export function getProviderName(model: string): "Gemini" | "OpenRouter" {
+export function getProviderName(model: string): "Gemini" | "OpenRouter" | "Groq" {
+    if (isGroqModel(model)) return "Groq";
     return isGeminiModel(model) ? "Gemini" : "OpenRouter";
 }

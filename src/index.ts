@@ -3,7 +3,6 @@ import { TelegramChannel } from "./channels/telegram.js";
 import { ENV } from "./config.js";
 import { loadCoreMemories } from "./memory/core.js";
 import { isSupabaseReady } from "./lib/supabase.js";
-import { initConfigSync } from "./lib/config-sync.js";
 import { initSkillsSystem } from "./skills/loader.js";
 import { startHeartbeat, stopHeartbeat } from "./heartbeat/scheduler.js";
 import { heartbeatJobs } from "./heartbeat/jobs.js";
@@ -30,8 +29,6 @@ async function start() {
   if (supabaseOk) {
     console.log("[Memory] Supabase connected — all 3 memory tiers active.");
     await loadCoreMemories();
-    // Load live config from bot_config table + sync agent profiles
-    await initConfigSync();
     // Initialize skills system with Supabase hot-reload
     await initSkillsSystem("skills");
 

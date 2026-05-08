@@ -19,6 +19,22 @@ import { buildCoreMemoryPrompt, getCoreMemory } from "../memory/core.js";
 import { saveMessage } from "../memory/buffer.js";
 import { HeartbeatJob } from "./scheduler.js";
 
+// ─── Minimal Markdown → HTML Converter ──────────────────────────────────────
+// Used so LLM-generated messages render correctly in Telegram (HTML parse mode).
+
+function mdToHtml(text: string): string {
+  const codeBlocks: string[] = [];
+  let r = text.replace(/```[\s\S]*?```/g, (m) => { codeBlocks.push(m.slice(3, -3).trim()); return `\x00CB${codeBlocks.length - 1}\x00`; });
+  r = r.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  r = r.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
+  r = r.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  r = r.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, "<i>$1</i>");
+  r = r.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  r = r.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  r = r.replace(/\x00CB(\d+)\x00/g, (_, i) => `<pre>${codeBlocks[parseInt(i)]}</pre>`);
+  return r;
+}
+
 /**
  * Morning Check-in — Configurable via HEARTBEAT_MORNING_TIME env var
  * Default: 08:00 IST
@@ -78,7 +94,7 @@ Keep it SHORT and punchy. No fluff, no filler. Total message should be under 300
     const message =
       response.text?.trim() || "Good morning! What's your biggest goal today?";
 
-    await bot.api.sendMessage(chatId, message);
+    await bot.api.sendMessage(chatId, mdToHtml(message), { parse_mode: "HTML" });
     // Save to conversation buffer so bot has context when user replies
     await saveMessage(chatId, "model", message);
     console.log("[Heartbeat] Morning check-in sent successfully.");
@@ -144,7 +160,7 @@ async function eveningBriefing(bot: Bot, chatId: string): Promise<void> {
   }
 
   try {
-    await bot.api.sendMessage(chatId, message);
+    await bot.api.sendMessage(chatId, mdToHtml(message), { parse_mode: "HTML" });
     await saveMessage(chatId, "model", message);
     console.log("[Heartbeat] Evening briefing sent.");
   } catch (err) {

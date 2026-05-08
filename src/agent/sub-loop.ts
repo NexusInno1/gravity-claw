@@ -153,6 +153,9 @@ async function executeSubAgentTool(
 
 // ─── Sub-Agent Loop ──────────────────────────────────────────────
 
+/** 270s — 30s less than the main loop's 300s, giving the main agent time to handle the error */
+const SUB_AGENT_TIMEOUT_MS = 270_000;
+
 /**
  * Run a sub-agent loop for a delegated task.
  *
@@ -160,9 +163,22 @@ async function executeSubAgentTool(
  * no memory loading, no message saving, no fact extraction.
  * Just the task, tools, and a focused system prompt.
  *
+ * Wrapped in a 270s timeout to prevent hung tool calls (Puppeteer freeze,
+ * Apify stall) from blocking the parent main-loop beyond its 300s deadline.
+ *
  * @returns The sub-agent's final text response.
  */
 export async function runSubAgentLoop(params: SubAgentParams): Promise<SubAgentResult> {
+    const timeoutPromise = new Promise<SubAgentResult>((_, reject) =>
+        setTimeout(
+            () => reject(new Error(`Sub-agent "${params.profile.name}" timed out after ${SUB_AGENT_TIMEOUT_MS / 1000}s`)),
+            SUB_AGENT_TIMEOUT_MS,
+        ),
+    );
+    return Promise.race([_runSubAgentLoop(params), timeoutPromise]);
+}
+
+async function _runSubAgentLoop(params: SubAgentParams): Promise<SubAgentResult> {
     const { message, chatId, profile, model } = params;
     const { schemas: tools, permittedNames } = getSubAgentTools(profile);
 

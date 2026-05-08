@@ -33,11 +33,15 @@ export const FRIENDLY_NAMES: Record<string, string> = {
   // Legacy exact IDs (keep for backwards compat)
   "gemini-1.5-pro": "Gemini 1.5 Pro",
   "gemini-1.5-flash": "Gemini 1.5 Flash",
-  // Claude
-  "anthropic/claude-3.7-sonnet": "Claude 3.7 Sonnet",
-  "anthropic/claude-3.7-opus": "Claude 3.7 Opus",
-  "anthropic/claude-3.5-haiku": "Claude 3.5 Haiku",
-  "anthropic/claude-3.5-sonnet": "Claude 3.5 Sonnet",
+  // Claude 4.x (current — live on OpenRouter as of 2026-05-08)
+  "anthropic/claude-opus-4.7": "Claude Opus 4.7",
+  "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
+  "anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
+  // Claude 3.x (retiring / retired — kept for display only)
+  "anthropic/claude-3.7-sonnet": "Claude 3.7 Sonnet (retiring)",
+  "anthropic/claude-3.7-opus": "Claude 3.7 Opus (N/A)",
+  "anthropic/claude-3.5-haiku": "Claude 3.5 Haiku (legacy)",
+  "anthropic/claude-3.5-sonnet": "Claude 3.5 Sonnet (legacy)",
   // GPT
   "openai/gpt-4o": "GPT-4o",
   "openai/gpt-4o-mini": "GPT-4o Mini",
@@ -45,24 +49,19 @@ export const FRIENDLY_NAMES: Record<string, string> = {
   "openai/gpt-5.4-mini": "GPT-5 Mini",
   "openai/o3": "o3",
   "openai/o4-mini": "o4 Mini",
-  // Llama
-  "meta-llama/llama-4-maverick:free": "Llama 4 Maverick (free)",
-  "meta-llama/llama-4-scout:free": "Llama 4 Scout (free)",
+  // Llama paid
   "meta-llama/llama-4-maverick": "Llama 4 Maverick",
-  // DeepSeek
-  "deepseek/deepseek-chat-v3-0324:free": "DeepSeek V3 (free)",
-  "deepseek/deepseek-r1-0528:free": "DeepSeek R1 (free)",
-  "deepseek/deepseek-r1-zero:free": "DeepSeek R1 Zero (free)",
-  // Qwen
-  "qwen/qwen3-235b-a22b:free": "Qwen 3 235B (free)",
-  "qwen/qwen3-coder-480b-a35b:free": "Qwen 3 Coder (free)",
+  "meta-llama/llama-3.3-70b-instruct": "Llama 3.3 70B",
+  // DeepSeek paid
+  "deepseek/deepseek-chat-v3-0324": "DeepSeek V3",
+  "deepseek/deepseek-r1": "DeepSeek R1",
+  // Qwen paid
+  "qwen/qwq-32b": "QwQ 32B",
+  "qwen/qwen3-235b-a22b": "Qwen 3 235B",
   // Mistral
-  "mistralai/mistral-small-3.1-24b-instruct:free": "Mistral Small 3.1 (free)",
-  // mistral-7b-instruct:free retired — alias now redirects to mistral-small-3.1
   "mistralai/mistral-large": "Mistral Large",
-  // Other
-  "microsoft/phi-4-reasoning-plus:free": "Phi-4 Reasoning+ (free)",
-  "nvidia/nemotron-3-super:free": "Nemotron 3 Super (free)",
+  // Free tier (only confirmed live free model as of 2026-04-29)
+  "openai/gpt-oss-20b:free": "GPT OSS 20B (free)",
 };
 
 /**

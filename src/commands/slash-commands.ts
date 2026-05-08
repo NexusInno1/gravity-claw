@@ -133,11 +133,15 @@ const KNOWN_MODELS: Record<string, string> = {
   "trinity": "openai/gpt-oss-20b:free",       // was trinity-mini:free (404)
 
   // ── OpenRouter Paid — Claude ───────────────────────────────────────────
-  "claude": "anthropic/claude-3.7-sonnet",
-  "claude-sonnet": "anthropic/claude-3.7-sonnet",
-  "claude-opus": "anthropic/claude-3.7-opus",
-  "claude-haiku": "anthropic/claude-3.5-haiku",
-  "claude-3.5": "anthropic/claude-3.5-sonnet",
+  // Live-verified 2026-05-08. Claude 3.x retired / retiring.
+  // claude-3.7-sonnet: retiring 2026-05-11 on OpenRouter
+  // claude-3.7-opus: never existed on OpenRouter
+  // Current production Claude 4.x lineup:
+  "claude": "anthropic/claude-sonnet-4.6",         // ✅ current daily driver
+  "claude-sonnet": "anthropic/claude-sonnet-4.6",   // ✅ Claude Sonnet 4.6
+  "claude-opus": "anthropic/claude-opus-4.7",       // ✅ flagship (replaced 3.7-opus)
+  "claude-haiku": "anthropic/claude-haiku-4.5",     // ✅ fastest / cheapest
+  "claude-3.5": "anthropic/claude-sonnet-4.6",      // legacy alias → 4.6
 
   // ── OpenRouter Paid — OpenAI / GPT ────────────────────────────────────
   "gpt": "openai/gpt-4o",

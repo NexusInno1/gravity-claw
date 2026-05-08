@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@google/genai": "^1.49.0",
+    "@google/genai": "^1.52.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@supabase/supabase-js": "^2.98.0",
     "dotenv": "^16.4.5",

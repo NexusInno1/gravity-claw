@@ -1,8 +1,8 @@
 /**
  * PM2 Ecosystem Configuration — Gravity Claw
  *
- * Manages both the main bot and Mission Control dashboard as a single
- * process group. Start everything with:
+ * Manages the main SUNDAY bot as a PM2 process.
+ * Start with:
  *
  *   pm2 start ecosystem.config.cjs
  *
@@ -10,7 +10,6 @@
  *   pm2 status                  — see running processes
  *   pm2 logs                    — tail all logs
  *   pm2 logs gravity-claw       — tail bot logs only
- *   pm2 logs mission-control    — tail dashboard logs only
  *   pm2 restart all             — restart everything
  *   pm2 stop all                — stop everything
  *   pm2 delete all              — remove from PM2 process list
@@ -49,36 +48,6 @@ module.exports = {
             max_memory_restart: "512M",
         },
 
-        // ── Mission Control Dashboard ───────────────────────────────────
-        {
-            name: "mission-control",
-            script: "npx",
-            args: "vite --host 0.0.0.0 --port 5173",
-            cwd: __dirname + "/mission-control-react",
-            interpreter: "none",
 
-            // Restart policy
-            autorestart: true,
-            max_restarts: 5,
-            restart_delay: 2000,
-            watch: false,
-
-            // Environment
-            env: {
-                NODE_ENV: "production",
-            },
-
-            // Logging
-            error_file: "./logs/mc-error.log",
-            out_file: "./logs/mc-out.log",
-            merge_logs: true,
-            log_date_format: "YYYY-MM-DD HH:mm:ss Z",
-
-            // Memory guard — restart if dashboard dev server exceeds 256MB
-            max_memory_restart: "256M",
-
-            // Start after bot is ready (2s delay)
-            wait_ready: false,
-        },
     ],
 };

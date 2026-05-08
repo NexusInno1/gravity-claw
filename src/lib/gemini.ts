@@ -125,17 +125,6 @@ function rotateKey(ownedKeyIndex: number): boolean {
   return false;
 }
 
-function getRetryDelay(error: unknown): number {
-  try {
-    const message = String((error as Error).message || "");
-    const match = message.match(/retry in (\d+(?:\.\d+)?)/i);
-    if (match) {
-      return Math.min(Math.ceil(parseFloat(match[1])) * 1000, 60000);
-    }
-  } catch { }
-  return 30000;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

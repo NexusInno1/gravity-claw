@@ -136,11 +136,11 @@ function resolveModel(raw: string): string | null {
   // Short aliases
   if (KNOWN_MODELS[lower]) return KNOWN_MODELS[lower];
 
-  // Full Gemini model name (e.g. "gemini-2.0-flash")
+  // Full Gemini model name (e.g. "gemini-2.5-flash")
   if (lower.startsWith("gemini-")) return lower;
 
-  // Full OpenRouter model name (e.g. "anthropic/claude-3-haiku")
-  // OpenRouter models always contain a "/" (provider/model format)
+  // Full Groq model name (e.g. "groq/llama-3.3-70b-versatile")
+  // Groq models use the "groq/" prefix — the router strips it before calling the API.
   if (lower.includes("/")) return lower;
 
   return null;

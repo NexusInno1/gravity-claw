@@ -393,22 +393,19 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
 
     lines.push(
       "",
-      "**Gemini 3.1 (❌ hard 404 — redirects to nearest working):** `/model pro-3.1` | `/model flash-3.1` | `/model flash-lite-3.1`",
-      "**Gemini 3 Flash (✅ verified):** `/model flash-3`",
-      "**Gemini 2.5 (✅ default):** `/model flash` | `/model pro` | `/model flash-lite`",
-      "**Gemini 2.5 (explicit):** `/model flash-2.5` | `/model pro-2.5` | `/model flash-lite-2.5`",
-      "**Gemini 1.5 (legacy):** `/model pro-1.5` | `/model flash-1.5` | `/model flash-8b`",
+      "━━ ♊ Gemini ━━",
+      "`flash` · `pro` · `flash-lite`  ← Gemini 2.5 (default)",
+      "`flash-3`  ← Gemini 3 Flash",
+      "`flash-2.0` · `flash-lite-2.0` · `pro-2.5`  ← explicit",
+      "`pro-1.5` · `flash-1.5` · `flash-8b`  ← legacy",
       "",
-      "**Free — Only working free OR model (✅):** `gpt-oss` (openai/gpt-oss-20b:free)",
-      "**Free — Dead aliases → redirect to gpt-oss:** `llama` | `deepseek` | `qwen` | `mistral` | `phi` | `nemotron` | `trinity`",
+      "━━ ⚡ Groq (free, 6k RPM) ━━",
+      "`groq` · `llama`  ← Llama 3.3 70B (best)",
+      "`llama-8b`  ← Llama 3 8B (fastest)",
+      "`mixtral`  ← Mixtral 8x7B (long context)",
+      "`gemma`  ← Gemma 2 9B",
       "",
-      "**Paid — Claude:**    `claude` | `claude-opus` | `claude-haiku` | `claude-3.5`",
-      "**Paid — GPT:**       `gpt` | `gpt-4o-mini` | `gpt-5` | `gpt-5-mini` | `o3` | `o4-mini`",
-      "**Paid — Llama:**     `llama-paid` | `llama-3.3`",
-      "**Paid — Other:**     `mistral-large` | `qwq` | `deepseek-paid` | `deepseek-r1-paid`",
-      "",
-      "**Any model:**        `/model provider/model-name` (e.g. `/model anthropic/claude-3.5-sonnet`)",
-      "**Reset to default:** `/model reset`",
+      "`/model reset` — back to default",
     );
 
     return { handled: true, response: lines.join("\n") };
@@ -430,10 +427,9 @@ function handleModel(chatId: string, args: string[]): SlashCommandResult {
       handled: true,
       response: [
         `❌ Unknown model: \`${args[0]}\`\n`,
-        "**Gemini:**    `flash`, `flash-2.5`, `flash-2.0`, `flash-lite`, `pro`, `pro-3.1`, `pro-1.5`",
-        "**Free OR:**   `llama`, `deepseek`, `deepseek-r1`, `qwen`, `mistral`, `phi`, `nemotron`",
-        "**Paid OR:**   `claude`, `claude-opus`, `gpt`, `gpt-5`, `o3`, `mistral-large`, `qwq`",
-        "**Full name:** e.g. `gemini-2.5-flash` or `anthropic/claude-3.7-sonnet`",
+        "**Gemini:** `flash`, `pro`, `flash-lite`, `flash-3`, `flash-2.0`, `pro-1.5`",
+        "**Groq:**   `groq`, `llama`, `llama-8b`, `mixtral`, `gemma`",
+        "**Custom:** `gemini-2.5-flash` or `groq/llama-3.3-70b-versatile`",
       ].join("\n"),
     };
   }

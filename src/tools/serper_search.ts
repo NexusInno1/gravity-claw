@@ -26,6 +26,19 @@ interface SerperResponse {
   answerBox?: { answer?: string; snippet?: string; title?: string };
 }
 
+interface SerperNewsResult {
+  title: string;
+  link: string;
+  snippet: string;
+  source: string;
+  date: string;
+  imageUrl?: string;
+}
+
+interface SerperNewsResponse {
+  news: SerperNewsResult[];
+}
+
 /**
  * Execute a web search using the Serper.dev Google Search API.
  * Returns formatted results optimized for direct links.
@@ -110,5 +123,77 @@ export async function executeSerperSearch(query: string): Promise<string> {
   } catch (error) {
     console.error("[WebSearch] Serper error:", error);
     return `Search failed: ${String(error)}`;
+  }
+}
+
+/**
+ * Execute a NEWS search using the Serper.dev /news endpoint.
+ * Returns fresh, timestamped Google News articles — NOT generic web results.
+ * Use this for morning heartbeat briefings to avoid stale or hallucinated news.
+ */
+export async function executeSerperNewsSearch(query: string): Promise<string> {
+  if (!ENV.SERPER_API_KEY) {
+    return "Error: SERPER_API_KEY is not configured. Add it to your .env file.";
+  }
+
+  try {
+    console.log(`[WebSearch] Serper/News search: "${query}"`);
+
+    const response = await fetch("https://google.serper.dev/news", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-KEY": ENV.SERPER_API_KEY,
+      },
+      body: JSON.stringify({
+        q: query,
+        num: 10,
+        gl: "us",
+        hl: "en",
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(
+        `[WebSearch] Serper News API error ${response.status}: ${errorText}`,
+      );
+      return `News search failed (HTTP ${response.status}): ${errorText}`;
+    }
+
+    const data = (await response.json()) as SerperNewsResponse;
+    const parts: string[] = [];
+
+    if (!data.news || data.news.length === 0) {
+      return "No news articles found for: " + query;
+    }
+
+    parts.push(`📰 **Top News Headlines** for: _"${query}"_`);
+    parts.push("---");
+
+    for (let i = 0; i < data.news.length; i++) {
+      const article = data.news[i];
+      parts.push(`**${i + 1}.** [${article.title}](${article.link})`);
+      if (article.snippet) {
+        const snippet =
+          article.snippet.length > 220
+            ? article.snippet.substring(0, 220) + "..."
+            : article.snippet;
+        parts.push(`   _${snippet}_`);
+      }
+      const meta: string[] = [];
+      if (article.source) meta.push(article.source);
+      if (article.date) meta.push(article.date);
+      if (meta.length > 0) parts.push(`   🕒 ${meta.join(" · ")}`);
+      parts.push("");
+    }
+
+    parts.push("---");
+    parts.push(`_${data.news.length} articles from Google News • Powered by Serper_`);
+
+    return parts.join("\n").trim();
+  } catch (error) {
+    console.error("[WebSearch] Serper News error:", error);
+    return `News search failed: ${String(error)}`;
   }
 }

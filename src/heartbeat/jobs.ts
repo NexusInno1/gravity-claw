@@ -11,8 +11,8 @@
 
 import { Bot } from "grammy";
 import { routedChat } from "../lib/router.js";
+import { executeSerperNewsSearch } from "../tools/serper_search.js";
 import { executeWebSearch } from "../tools/web_search.js";
-import { executeSerperSearch } from "../tools/serper_search.js";
 import { ENV } from "../config.js";
 import { getRuntimeConfig } from "../lib/config-sync.js";
 import { buildCoreMemoryPrompt, getCoreMemory } from "../memory/core.js";
@@ -47,17 +47,21 @@ function mdToHtml(text: string): string {
 async function morningCheckin(bot: Bot, chatId: string): Promise<void> {
   console.log("[Heartbeat] Running morning check-in...");
 
-  // 1. Fetch global news
+  // 1. Fetch today's global news (via Serper /news endpoint for accuracy)
   let newsContext = "";
   try {
-    // Prefer Serper (Google) for news links, fall back to Tavily
-    const searchFn = ENV.SERPER_API_KEY
-      ? executeSerperSearch
-      : executeWebSearch;
-    newsContext = await searchFn(
-      "top global news headlines today " +
-      new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
-    );
+    const todayIST = new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
+    if (ENV.SERPER_API_KEY) {
+      // Use /news endpoint — returns fresh, timestamped Google News articles
+      newsContext = await executeSerperNewsSearch(
+        `breaking world news ${todayIST}`,
+      );
+    } else {
+      // Fallback to Tavily / Serper generic search
+      newsContext = await executeWebSearch(
+        `top global news headlines today ${todayIST}`,
+      );
+    }
   } catch (err) {
     console.error("[Heartbeat] News fetch failed:", err);
     newsContext = "Unable to fetch news today.";
@@ -73,12 +77,15 @@ async function morningCheckin(bot: Bot, chatId: string): Promise<void> {
 ${coreMemory ? `## What you know about the user:\n${coreMemory}\n` : ""}
 ${previousGoal ? `## Their last stated goal:\n${previousGoal}\n` : ""}
 
-## Today's Global News Summary:
+## Today's News Articles (from Google News — verified, real sources):
 ${newsContext}
 
 ## Instructions:
 1. Start with a brief, energetic greeting (1 line)
-2. Give a concise summary of 3-5 most important global news items (bullet points, 1 line each)
+2. Summarize 3–5 of the most important news items from the articles above.
+   ⚠️ CRITICAL: Only report events that are explicitly mentioned in the articles above.
+   Do NOT add, invent, or embellish any news item. If you are unsure, omit it.
+   Always name the real headline or source snippet as listed.
 3. If they had a previous goal, briefly ask about it
 4. End by asking: "What is the biggest goal you want to achieve today?"
 

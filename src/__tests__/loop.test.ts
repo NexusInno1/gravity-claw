@@ -41,9 +41,10 @@ vi.mock("../lib/router.js", () => ({
     getProviderName: (model: string) => model.startsWith("gemini-") ? "Gemini" : model.startsWith("groq/") ? "Groq" : "Gemini",
 }));
 
-// Mock slash-commands to return default model
+// Mock slash-commands to return default model + no session focus
 vi.mock("../commands/slash-commands.js", () => ({
     getEffectiveModel: () => "gemini-2.5-flash",
+    getSessionFocus: () => undefined,
 }));
 
 // Mock session-stats to no-op

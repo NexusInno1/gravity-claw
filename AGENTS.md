@@ -1,7 +1,7 @@
 # AGENTS.md — SUNDAY Multi-Agent Collaboration Guide
 
 > **System:** SUNDAY — Sharp personal AI agent (Telegram + Webhook, hosted on Railway)  
-> **Version:** 1.1 | **Last Updated:** 14-Apr-2026 | **Timezone:** IST (UTC+5:30)
+> **Version:** 1.6 | **Last Updated:** 13-May-2026 | **Timezone:** IST (UTC+5:30)
 
 ---
 
@@ -162,6 +162,11 @@ delegate() called → sub-agent runs → task completes
 
 | Command           | Action                                          |
 |-------------------|-------------------------------------------------|
+| `/what`           | 10 LLM-generated things the user can ask right now (randomised each call) |
+| `/spark`          | Manually trigger a mid-day insight spark        |
+| `/challenge`      | One executable 15-30 min challenge tailored to user profile |
+| `/focus <topic>`  | Set a session focus injected into every system prompt |
+| `/focus clear`    | Remove the active session focus                 |
 | `/skills`         | List all auto-generated skills with metadata    |
 | `/export`         | Full memory dump including profile & skills     |
 | `/profile`        | View or clear the auto-built user profile       |

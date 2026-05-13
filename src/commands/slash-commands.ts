@@ -18,6 +18,10 @@
  *   /agents   — list available sub-agents
  *   /pin      — save something to permanent core memory
  *   /help     — list all available commands
+ *   /what     — show 10 wild/useful things you can actually ask SUNDAY
+ *   /challenge — get one executable 15-30 min challenge for today
+ *   /focus <topic> — set a session focus topic SUNDAY keeps returning to
+ *   /spark    — manually trigger today's mid-day insight
  */
 
 import { ENV } from "../config.js";
@@ -44,6 +48,8 @@ import {
   getUserProfile,
   clearUserProfile,
 } from "../memory/user-profile.js";
+import { buildCoreMemoryPrompt } from "../memory/core.js";
+import { routedChat } from "../lib/router.js";
 import { listAutoSkills } from "../skills/auto-generator.js";
 import { applySkillFeedback, manuallyRefineSkill } from "../skills/feedback.js";
 
@@ -57,6 +63,19 @@ import { applySkillFeedback, manuallyRefineSkill } from "../skills/feedback.js";
 const sessionModelOverrides = new Map<string, string>();
 
 /**
+ * In-memory map of chatId → session focus topic.
+ * When set, SUNDAY weaves the topic into its reasoning context.
+ */
+export const sessionFocusTopics = new Map<string, string>();
+
+/**
+ * Get the current session focus topic for a chat (if any).
+ */
+export function getSessionFocus(chatId: string): string | undefined {
+  return sessionFocusTopics.get(chatId);
+}
+
+/**
  * Get the effective model for a given chat (override takes precedence).
  */
 export function getEffectiveModel(chatId: string): string {
@@ -68,6 +87,7 @@ export function getEffectiveModel(chatId: string): string {
  */
 export function clearModelOverride(chatId: string): void {
   sessionModelOverrides.delete(chatId);
+  sessionFocusTopics.delete(chatId);
 }
 
 // ─── Known Model Shortcuts ────────────────────────────────────────
@@ -216,6 +236,17 @@ const PLAIN_TEXT_ALIASES: [RegExp, string][] = [
   [/^wipe\s+(session|history|memory)$/i, "/clear_memories"],
   [/^show\s+help$/i, "/help"],
   [/^all\s+commands$/i, "/help"],
+  [/^what\s+can\s+you\s+do\??$/i, "/what"],
+  [/^show\s+me\s+what\s+you\s+can\s+do/i, "/what"],
+  [/^what\s+should\s+i\s+ask$/i, "/what"],
+  [/^give\s+me\s+(a\s+)?challenge$/i, "/challenge"],
+  [/^daily\s+challenge$/i, "/challenge"],
+  [/^what('?s|\s+is)\s+my\s+challenge$/i, "/challenge"],
+  [/^(show\s+)?my\s+focus$/i, "/focus"],
+  [/^(clear|remove)\s+focus$/i, "/focus clear"],
+  [/^give\s+me\s+(a\s+)?spark$/i, "/spark"],
+  [/^spark\s+me$/i, "/spark"],
+  [/^inspire\s+me$/i, "/spark"],
 
   // Single-word exact matches (fallback)
   [/^status$/i, "/status"],
@@ -321,6 +352,18 @@ export async function handleSlashCommand(
 
     case "/skill_refine":
       return await handleSkillRefine(args);
+
+    case "/what":
+      return await handleWhat(chatId);
+
+    case "/challenge":
+      return await handleChallenge(chatId);
+
+    case "/focus":
+      return handleFocus(chatId, args);
+
+    case "/spark":
+      return await handleSpark(chatId);
 
     default:
       // Unknown slash command — let the LLM handle it naturally
@@ -498,6 +541,13 @@ function handleHeartbeatSet(args: string[]): SlashCommandResult {
 function handleHelp(): SlashCommandResult {
   const response = [
     "⚡ **SUNDAY Commands**\n",
+    "**Engagement** ← _Start here_",
+    "`/what`            — 10 useful things you can ask SUNDAY right now (fresh each time)",
+    "`/spark`           — Drop a sharp insight, mental model, or rabbit hole on me",
+    "`/challenge`       — Get one 15-min executable challenge tailored to your goals",
+    "`/focus <topic>`   — Set a session focus SUNDAY keeps in mind for every reply",
+    "`/focus clear`     — Clear the current session focus",
+    "",
     "**Memory**",
     "`/pin <text>`       — Save something to permanent core memory",
     "`/forget <key>`    — Remove a core memory entry (`/forget all` clears all)",
@@ -515,7 +565,7 @@ function handleHelp(): SlashCommandResult {
     "`/model [name]`    — Show or switch model for this session",
     "",
     "**Heartbeat**",
-    "`/heartbeat`       — Show scheduler status (morning + evening jobs)",
+    "`/heartbeat`       — Show scheduler status (morning, spark, evening)",
     "`/heartbeat_set`   — Change morning check-in time: `/heartbeat_set 09:00`",
     "`/reminders`       — View pending reminders",
     "",
@@ -524,11 +574,270 @@ function handleHelp(): SlashCommandResult {
     "`/skills`          — List auto-generated skills SUNDAY has learned",
     "",
     "_Commands are handled locally and never sent to the LLM._",
+    "_Tip: Say things naturally too — \"give me a challenge\", \"inspire me\", \"what can you do\"._",
   ].join("\n");
 
   return { handled: true, response };
 }
 
+// ─── /what — Discovery Command ──────────────────────────────────────────────────────────────────────
+
+/**
+ * /what — Shows 10 wild, actually-useful things the user can ask SUNDAY.
+ * Randomised each time from a curated pool so it never gets stale.
+ */
+async function handleWhat(chatId: string): Promise<SlashCommandResult> {
+  const coreMemory = buildCoreMemoryPrompt();
+
+  const prompt = `You are SUNDAY, a sharp personal AI agent. Generate 10 genuinely useful and exciting things this user can ask you RIGHT NOW.
+
+${coreMemory ? `## What you know about the user:\n${coreMemory}\n` : ""}
+
+## Rules:
+- Make them SPECIFIC and IMMEDIATELY actionable ("Ask me to..." format)
+- Cover a wide variety: research tasks, build ideas, analysis, creative, job search, decision-making, skill-building, news deep-dives, etc.
+- Vary the tone: some bold, some practical, some unexpected
+- Tailor to what you know about this user — their domain, projects, interests
+- If you know nothing about them, use a mix of universally useful things
+- Each suggestion must be ONE sentence, max 15 words
+- DO NOT number them — use bullet points
+- DO NOT add headers or categories — just the list
+- Start the list immediately, no preamble
+
+Generate 10 suggestions now (shuffle them so the most unexpected ones aren't always last):`;
+
+  try {
+    const response = await routedChat({
+      model: getRuntimeConfig().primaryModel,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.9,
+    });
+
+    const list = response.text?.trim() || "";
+
+    const reply = [
+      "\u26a1 **Things you can ask SUNDAY right now:**\n",
+      list,
+      "",
+      "_Type any of these (or remix them). Run `/what` again for a fresh set._",
+    ].join("\n");
+
+    return { handled: true, response: reply };
+  } catch {
+    return {
+      handled: true,
+      response: [
+        "\u26a1 **Things you can ask SUNDAY:**\n",
+        "\u2022 Find me 10 remote jobs in [your field] posted this week",
+        "\u2022 Research the latest on [topic I'm following]",
+        "\u2022 Give me 3 SaaS ideas I could build in 8 weeks",
+        "\u2022 Analyse this startup: [paste a URL or description]",
+        "\u2022 Write a cold email for [goal] targeting [persona]",
+        "\u2022 What's the most underrated mental model for building products?",
+        "\u2022 Compare [tool A] vs [tool B] for my use case",
+        "\u2022 Summarise everything important about [topic] in 5 bullets",
+        "\u2022 What would a contrarian say about [my current approach]?",
+        "\u2022 Set me a reminder to [task] at [time] tomorrow",
+        "",
+        "_Run `/what` again for a fresh set._",
+      ].join("\n"),
+    };
+  }
+}
+
+// ─── /challenge — Daily Challenge Generator ──────────────────────────────────────────────────────
+
+/**
+ * /challenge — One executable 15–30 min challenge tailored to the user.
+ */
+async function handleChallenge(chatId: string): Promise<SlashCommandResult> {
+  const coreMemory = buildCoreMemoryPrompt();
+
+  const CHALLENGE_TYPES = [
+    "build a micro-feature, script, or prototype for something you've been procrastinating",
+    "write one thing: a cold outreach, a product spec, a blog intro, or a decision doc",
+    "map something: your biggest bottleneck, your product's weak point, or your week's priorities",
+    "learn one thing: find the definitive 10-minute explanation of a concept you've been ignoring",
+    "ship something small: a PR, a tweet thread, a post, a loom, or a DM to someone useful",
+    "research and audit: pick one competitor or tool and reverse-engineer their onboarding or pricing",
+  ];
+  const challengeAngle = CHALLENGE_TYPES[Math.floor(Math.random() * CHALLENGE_TYPES.length)];
+
+  const prompt = `You are SUNDAY. Give this user ONE specific, executable challenge for the next 15–30 minutes.
+
+${coreMemory ? `## User context:\n${coreMemory}\n` : ""}
+
+## Challenge angle to use today: ${challengeAngle}
+
+## Rules:
+- Be specific — not "write something" but "write 3 opening lines for a cold email to a startup CTO about [their product]"
+- Make it directly relevant to what you know about this user
+- Include: what to do, why it matters, and one concrete starting point
+- Keep it under 100 words total
+- Use this exact format:
+
+\u23f0 **15-min challenge:**
+[The specific task]
+
+**Why:** [1 sentence on why this moves the needle]
+
+**Start with:** [One concrete first action]
+
+Generate the challenge now:`;
+
+  try {
+    const response = await routedChat({
+      model: getRuntimeConfig().primaryModel,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.8,
+    });
+
+    const challenge = response.text?.trim() || "";
+    return {
+      handled: true,
+      response: challenge + "\n\n_Done? Tell me how it went. `/challenge` again for a new one._",
+    };
+  } catch {
+    return {
+      handled: true,
+      response: [
+        "\u23f0 **15-min challenge:**",
+        "Write down the single biggest blocker between you and your goal right now. Then break it into 3 sub-tasks.",
+        "",
+        "**Why:** Clarity on the real blocker is the fastest path forward.",
+        "",
+        "**Start with:** Open a blank doc and write \"The biggest thing stopping me is...\"",
+      ].join("\n"),
+    };
+  }
+}
+
+// ─── /focus — Session Focus Topic ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * /focus [topic] — Set a session focus that SUNDAY keeps returning to.
+ * /focus (no args) — Show current focus or clear it.
+ */
+function handleFocus(chatId: string, args: string[]): SlashCommandResult {
+  // /focus (no args) — show or clear
+  if (args.length === 0) {
+    const current = sessionFocusTopics.get(chatId);
+    if (current) {
+      return {
+        handled: true,
+        response: [
+          `\u{1F3AF} **Current session focus:** ${current}`,
+          "",
+          "SUNDAY is keeping this in mind for every response this session.",
+          "`/focus clear` — remove focus | `/focus <new topic>` — change it",
+        ].join("\n"),
+      };
+    }
+    return {
+      handled: true,
+      response: [
+        "\u{1F3AF} **No session focus set.**\n",
+        "Set one with `/focus <topic>` — SUNDAY will keep it in mind for every response this session.",
+        "",
+        "**Examples:**",
+        "`/focus building my SaaS MVP`",
+        "`/focus job hunting for ML roles`",
+        "`/focus learning system design`",
+        "`/focus launching my product this week`",
+      ].join("\n"),
+    };
+  }
+
+  // /focus clear
+  if (args[0].toLowerCase() === "clear") {
+    sessionFocusTopics.delete(chatId);
+    return { handled: true, response: "\u{1F3AF} Session focus cleared." };
+  }
+
+  // /focus <topic>
+  const topic = args.join(" ");
+  sessionFocusTopics.set(chatId, topic);
+
+  return {
+    handled: true,
+    response: [
+      `\u{1F3AF} **Focus set: ${topic}**`,
+      "",
+      "Got it. I'll keep this in the back of my mind and connect it to my responses this session.",
+      "",
+      "_Clears on `/new` or `/focus clear`._",
+    ].join("\n"),
+  };
+}
+
+// ─── /spark — Manual Spark Trigger ──────────────────────────────────────────────────────────────────────
+
+const MANUAL_SPARK_TYPES = [
+  "contrarian_insight",
+  "rabbit_hole",
+  "mental_model",
+  "build_prompt",
+  "provocative_question",
+] as const;
+
+const MANUAL_SPARK_INSTRUCTIONS: Record<string, string> = {
+  contrarian_insight:
+    "Share one counterintuitive insight or a pattern most people get wrong in the user's domain. " +
+    "Back it with one real-world example. Make it something genuinely surprising.",
+  rabbit_hole:
+    "Suggest one fascinating rabbit hole to explore — a concept, tool, person, or paper " +
+    "they've probably never heard of but will find genuinely valuable. Explain why in 2 lines.",
+  mental_model:
+    "Teach one powerful mental model that applies directly to their current work or goals. " +
+    "Name it, explain it in 2 sentences, and show how it applies to their situation.",
+  build_prompt:
+    "Drop one compelling 'what if you built...' micro-idea that fits their skills. " +
+    "Make it specific enough to start today — core pain, minimum feature, and why now.",
+  provocative_question:
+    "Ask one sharp, uncomfortable question about their work, goals, or assumptions. " +
+    "Make it feel like something a brutally honest mentor would ask.",
+};
+
+/**
+ * /spark — Manually trigger an insight spark on demand.
+ */
+async function handleSpark(chatId: string): Promise<SlashCommandResult> {
+  const coreMemory = buildCoreMemoryPrompt();
+  const sparkKeys = Object.keys(MANUAL_SPARK_INSTRUCTIONS);
+  const sparkType = sparkKeys[Math.floor(Math.random() * sparkKeys.length)];
+  const instruction = MANUAL_SPARK_INSTRUCTIONS[sparkType];
+
+  const prompt = `You are SUNDAY. Generate one sharp, useful spark for this user.
+
+${coreMemory ? `## User context:\n${coreMemory}\n` : ""}
+
+## Task: ${instruction}
+
+## Format:
+- Max 120 words
+- Start with a relevant emoji
+- Punchy and direct — no filler
+- End naturally (question or CTA only if it fits)
+- DO NOT label it or explain what type of spark this is
+
+Generate now:`;
+
+  try {
+    const response = await routedChat({
+      model: getRuntimeConfig().primaryModel,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.88,
+    });
+
+    const message = response.text?.trim() || "\u26a1 What would you build if you had to ship something useful by this time tomorrow?";
+    return { handled: true, response: message };
+  } catch {
+    return {
+      handled: true,
+      response: "\u26a1 Most people optimise for being busy. The rare move is optimising for being *decisive*. What's one decision you've been sitting on that you could make in the next 60 seconds?",
+    };
+  }
+}
 
 async function handlePin(chatId: string, args: string[]): Promise<SlashCommandResult> {
   if (args.length === 0) {

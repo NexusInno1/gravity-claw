@@ -67,8 +67,8 @@ import { mcpManager } from "../mcp/mcp-manager.js";
 // Session stats tracking
 import { recordTokenUsage } from "../commands/session-stats.js";
 
-// Slash commands — model override
-import { getEffectiveModel } from "../commands/slash-commands.js";
+// Slash commands — model override + session focus
+import { getEffectiveModel, getSessionFocus } from "../commands/slash-commands.js";
 
 const MAX_ITERATIONS = 5;
 const MAX_LOOP_TIMEOUT_MS = 300_000; // 300 seconds (5 min) — job searches can take 2–5 min across platforms
@@ -210,6 +210,18 @@ async function buildSystemInstruction(
   const userProfileBlock = buildUserProfilePrompt();
   if (userProfileBlock) {
     parts.push(userProfileBlock);
+  }
+
+  // 5c. Session Focus Topic (set via /focus — overrides everything for this session)
+  const sessionFocus = getSessionFocus(chatId);
+  if (sessionFocus) {
+    parts.push(
+      `## 🎯 Session Focus (Active This Session)\n` +
+      `The user has set a session focus: **"${sessionFocus}"**\n` +
+      `Keep this in mind throughout the conversation. Where relevant, connect your responses, ` +
+      `insights, and suggestions back to this focus. Don't force it unnaturally, ` +
+      `but do actively look for angles that serve this goal.`,
+    );
   }
 
   // 6. Tier 2 Rolling Summary
